@@ -1,4 +1,5 @@
 import re
+import winsound
 import speech_recognition as sr
 import threading
 import time
@@ -8,6 +9,9 @@ from modules.ai_brain import ai_brain
 from modules.tts_engine import tts_engine
 from modules.stt_engine import stt_engine
 from modules import command_router
+from modules import system_control as sc
+
+CONFIRM_WORDS = ["yes", "yeah", "yep", "confirm", "do it", "go ahead", "sure"]
 
 
 def _contains_phrase(text, phrases):
@@ -25,7 +29,7 @@ class VoiceControl:
         self._recognizer.energy_threshold = config.MIC_ENERGY_THRESHOLD
         self._recognizer.dynamic_energy_threshold = True
         self._recognizer.pause_threshold = config.MIC_PAUSE_THRESHOLD
-        self._recognizer.non_speaking_duration = min(0.3, config.MIC_PAUSE_THRESHOLD)
+        self._recognizer.non_speaking_duration = min(0.25, config.MIC_PAUSE_THRESHOLD)
         self._mic = sr.Microphone(device_index=config.MIC_DEVICE_INDEX)
 
         try:
@@ -59,75 +63,98 @@ class VoiceControl:
     def _say(self, text):
         # Blocking speech so the mic doesn't record the assistant's own voice
         tts_engine.speak(text)
+        if self._session_active and config.LISTEN_BEEP:
+            winsound.Beep(1000, 70)  # signals that listening has resumed
 
-    def _listen_once(self, timeout=None, phrase_time_limit=12):
+    def _listen_once(self, source, timeout=None, phrase_time_limit=12, accurate=False):
+        # OSError is left to the caller, which reopens the mic stream
         try:
-            with self._mic as source:
-                audio = self._recognizer.listen(
-                    source, timeout=timeout, phrase_time_limit=phrase_time_limit
-                )
+            audio = self._recognizer.listen(
+                source, timeout=timeout, phrase_time_limit=phrase_time_limit
+            )
         except sr.WaitTimeoutError:
-            return ""
-        except OSError as e:
-            print(f"[Voice] Mic read error: {e}")
-            time.sleep(1)  # transient device error, back off and retry next loop
             return ""
 
         start = time.time()
-        text = stt_engine.transcribe(audio)
+        text = stt_engine.transcribe(audio, accurate=accurate)
         if text:
             print(f"[Voice] Heard: \"{text}\" ({time.time() - start:.2f}s)")
         return text
 
     def _run(self):
         print("[Voice] Listening thread started.")
+        # The mic stream stays open for the thread's lifetime. Reopening it on
+        # every listen adds a delay, especially with Bluetooth headsets that
+        # switch audio profiles each time the mic opens.
         while self._running:
-            raw = self._listen_once(timeout=5)
-            if not raw:
-                continue
-            text = command_router.normalize(raw)
+            try:
+                with self._mic as source:
+                    while self._running:
+                        self._process_once(source)
+            except OSError as e:
+                print(f"[Voice] Mic error, reopening: {e}")
+                time.sleep(1)
 
-            # Mode switch phrases work regardless of wake word or active mode
-            if _contains_phrase(text, config.SWITCH_TO_GESTURE_PHRASES):
-                print("[Voice] Matched: switch to gesture mode.")
-                mode_manager.set_mode("GESTURE")
-                self._say("Switched to gesture mode.")
-                continue
-            if _contains_phrase(text, config.SWITCH_TO_VOICE_PHRASES):
-                print("[Voice] Matched: switch to voice mode.")
-                mode_manager.set_mode("VOICE")
-                self._say("Switched to voice mode.")
-                continue
+    def _process_once(self, source):
+        # The accurate model is used only during a session, where commands matter
+        raw = self._listen_once(source, timeout=5, accurate=self._session_active)
+        if not raw:
+            return
+        text = command_router.normalize(raw)
+        self._route(text)
 
-            if mode_manager.get_mode() != "VOICE":
-                print("[Voice] Ignored (not in voice mode).")
-                continue
+    def _route(self, text):
+        # Mode switch phrases work regardless of wake word or active mode
+        if _contains_phrase(text, config.SWITCH_TO_GESTURE_PHRASES):
+            print("[Voice] Matched: switch to gesture mode.")
+            mode_manager.set_mode("GESTURE")
+            self._say("Switched to gesture mode.")
+            return
+        if _contains_phrase(text, config.SWITCH_TO_VOICE_PHRASES):
+            print("[Voice] Matched: switch to voice mode.")
+            mode_manager.set_mode("VOICE")
+            self._say("Switched to voice mode.")
+            return
 
-            if not self._session_active:
-                wake = next((w for w in config.WAKE_WORDS if w in text), None)
-                if not wake:
-                    print("[Voice] No wake word, ignoring.")
-                    continue
-                self._session_active = True
-                print("[Voice] Session started.")
-                # Allows "hey vox open brave" in a single sentence
-                remainder = text.split(wake, 1)[1].strip()
-                if remainder:
-                    self._handle_command(remainder)
-                else:
-                    self._say("Yes?")
-                continue
+        if mode_manager.get_mode() != "VOICE":
+            print("[Voice] Ignored (not in voice mode).")
+            return
 
-            if _contains_phrase(text, config.END_SESSION_PHRASES):
-                self._session_active = False
-                print("[Voice] Session ended.")
-                self._say("Goodbye.")
-                continue
+        if not self._session_active:
+            wake = next((w for w in config.WAKE_WORDS if _contains_phrase(text, [w])), None)
+            if not wake:
+                print("[Voice] No wake word, ignoring.")
+                return
+            self._session_active = True
+            print("[Voice] Session started.")
+            # Allows "hey vox open brave" in a single sentence
+            remainder = text.split(wake, 1)[1].strip()
+            if remainder:
+                self._handle_command(remainder)
+            else:
+                self._say("Yes?")
+            return
 
-            self._handle_command(text)
+        if _contains_phrase(text, config.END_SESSION_PHRASES):
+            self._session_active = False
+            print("[Voice] Session ended.")
+            self._say("Goodbye.")
+            return
+
+        self._handle_command(text)
 
     def _handle_command(self, command):
         print(f"[Voice] Command: \"{command}\"")
+        if sc.has_pending_action():
+            if _contains_phrase(command, CONFIRM_WORDS):
+                result = sc.confirm_pending()
+            else:
+                result = sc.cancel_pending()
+            print(f"[Voice] Confirmation result: {result}")
+            ai_brain.record_exchange(command, result)
+            self._say(result)
+            return
+
         fast_result = command_router.try_handle(command)
         if fast_result is not None:
             print(f"[Voice] Handled locally: {fast_result}")

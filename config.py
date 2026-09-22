@@ -1,14 +1,18 @@
 import os
 from dotenv import load_dotenv
-
+ 
 load_dotenv()
-
-# API keys
+ 
+# API keys and models
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-GROQ_MODEL = "openai/gpt-oss-120b"  # llama-3.3-70b-versatile was deprecated by Groq (Aug 2026)
-
-# Wake word settings
+GROQ_MODEL = "openai/gpt-oss-120b"
+GROQ_REASONING_EFFORT = "low"            # low keeps replies fast for voice use
+STT_MODEL_FAST = "whisper-large-v3-turbo"  # idle listening (wake word, mode phrases)
+STT_MODEL_ACCURATE = "whisper-large-v3-turbo"
+ 
+# Wake word and session phrases
 WAKE_WORDS = ["hello", "hey", "hey gest", "hey vox", "hey gestvox"]
+END_SESSION_PHRASES = ["bye", "goodbye", "that's all", "stop listening"]
 SWITCH_TO_VOICE_PHRASES = ["switch to voice", "voice mode", "use voice"]
 SWITCH_TO_GESTURE_PHRASES = ["switch to gesture", "gesture mode", "use gesture"]
  
@@ -21,31 +25,41 @@ CAM_INDEX = 0
 REMOTE_CAMERA_URL = "http://192.168.1.100:8080/video"  # set to laptop's stream URL
 FRAME_WIDTH = 640
 FRAME_HEIGHT = 360
-HAND_MODEL_COMPLEXITY = 1  # 0 = fastest/least accurate, 1 = balanced
+SHOW_PREVIEW = True
+ 
+# Hand tracking
 HAND_DETECTION_CONFIDENCE = 0.6
 HAND_TRACKING_CONFIDENCE = 0.6
 MAX_NUM_HANDS = 1
-SMOOTHING_FACTOR = 3          # higher = smoother, slightly more lag
-# Pinch thresholds as a fraction of hand size (wrist-to-middle-knuckle
-# distance), so detection adapts to hand distance from the camera instead
-# of relying on fixed pixel values.
-CLICK_CLOSE_RATIO = 0.35   # pinch closes below this fraction of hand size
-CLICK_RELEASE_RATIO = 0.45 # pinch must open past this fraction to re-arm
-CLICK_COOLDOWN = 0.3       # seconds, minimum gap between clicks
+GESTURE_MIN_SCORE = 0.65      # minimum confidence for built-in gestures
+FRAME_MARGIN = 80             # ignore frame edges for stable cursor mapping
+ 
+# Cursor smoothing (One Euro filter): lower min_cutoff = steadier when slow,
+# higher beta = less lag when moving fast
+CURSOR_MIN_CUTOFF = 1.0
+CURSOR_BETA = 0.007
+ 
+# Pinch thresholds as a fraction of hand size (wrist to middle knuckle)
+CLICK_CLOSE_RATIO = 0.35      # pinch closes below this
+CLICK_RELEASE_RATIO = 0.45    # pinch must open past this to re-arm
+CLICK_COOLDOWN = 0.2          # seconds between clicks
+DOUBLE_CLICK_WINDOW = 0.4     # two clicks within this count as a double-click
 RIGHT_CLICK_COOLDOWN = 0.5
-SCROLL_SENSITIVITY = 15
-FRAME_MARGIN = 100            # ignore edges of frame for stable cursor mapping
+SCROLL_STEP = 120             # one mouse wheel notch on Windows
  
 # Multi-user
-VOICE_LOGIN_ENABLED = True  # set False to skip login and use shared memory
+VOICE_LOGIN_ENABLED = True    # set False to skip login and use shared memory
  
-# Voice settings
-MIC_DEVICE_INDEX = 2  # Headset (Wave ANC) earbuds
+# Microphone and speech detection
+MIC_DEVICE_INDEX = 2          # run list_mics.py to pick the right one
 MIC_ENERGY_THRESHOLD = 300
-STT_MODEL = "whisper-large-v3-turbo"
-MIC_PAUSE_THRESHOLD = 0.5
-END_SESSION_PHRASES = ["bye", "goodbye", "that's all", "stop listening"]
-TTS_RATE = 175
+MIC_PAUSE_THRESHOLD = 0.4     # seconds of silence that end a phrase
+LISTEN_BEEP = True            # short beep when it is ready for your next command
+VAD_AGGRESSIVENESS = 2        # 0-3, higher filters more background noise
+VAD_MIN_SPEECH_RATIO = 0.15   # audio with less speech than this is skipped
+ 
+# Text to speech
+TTS_RATE = 180
 TTS_VOLUME = 1.0
  
 # App

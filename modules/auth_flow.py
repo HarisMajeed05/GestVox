@@ -71,7 +71,7 @@ def run_login_flow():
     print("[Auth] No known voice matched. Asking for a name.")
     tts_engine.speak("I don't recognize your voice. Please say, my name is, and then your name.")
     name_path, name_audio = _record_sample(recognizer, mic, seconds=5)
-    text = stt_engine.transcribe(name_audio)
+    text = stt_engine.transcribe(name_audio, accurate=True)
     print(f"[Auth] Heard for enrollment: \"{text}\"")
     name = _extract_name(text)
 

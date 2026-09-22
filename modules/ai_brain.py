@@ -1,3 +1,4 @@
+import re
 import json
 from groq import Groq
 import config
@@ -8,96 +9,80 @@ from modules import auth_flow
 
 BASE_SYSTEM_PROMPT = (
     "You are GestVox, a personal voice assistant running on the user's "
-    "Windows PC, similar to Jarvis. Keep spoken replies short (1-3 "
-    "sentences) unless asked for detail. Use the available tools whenever "
-    "the user asks you to control the PC (open/close apps, volume, media, "
-    "lock, shutdown, restart, battery, time, screenshot, open a website, "
-    "web search). Don't ask for confirmation on reversible actions; only "
-    "confirm before shutdown or restart if the request is ambiguous.\n\n"
+    "Windows PC, similar to Jarvis. Your replies are spoken aloud, so keep "
+    "them short (1-3 sentences), plain text, no markdown, no lists, no "
+    "emojis, unless the user asks for detail. Use the available tools "
+    "whenever the user asks you to control the PC. You have full access to "
+    "the PC through run_powershell: for anything without a dedicated tool "
+    "(files, folders, settings, system info, processes, network, installed "
+    "programs), write a Windows PowerShell 5.1 command and run it, then "
+    "summarize the result in plain words. Prefer dedicated tools when one "
+    "fits. If a tool result asks the user to say yes to confirm, pass that "
+    "question to the user as is. Never make up live data such as weather, "
+    "news, or prices: use get_weather for weather, and for other live info "
+    "use web_search, which only opens results in the browser for the user "
+    "to read, since you can't see them.\n\n"
     "After every reply, on a new line, output exactly one of:\n"
     "FACT: <a short, standalone fact worth remembering long-term about the "
     "user, their preferences, corrections they gave, or ongoing context>\n"
     "FACT: NONE\n"
     "Only save a real fact when something new and useful was actually "
-    "said. Don't save small talk or one-off requests with no lasting "
-    "relevance."
+    "said. Don't save small talk or one-off requests."
 )
 
+MAX_TOOL_ROUNDS = 5
+
+
+def _tool(name, description, properties=None, required=None):
+    return {"type": "function", "function": {
+        "name": name, "description": description,
+        "parameters": {"type": "object", "properties": properties or {},
+                       "required": required or []},
+    }}
+
+
 TOOLS = [
-    {"type": "function", "function": {
-        "name": "open_app", "description": "Open a known desktop app.",
-        "parameters": {"type": "object", "properties": {
-            "app_name": {"type": "string", "description": "e.g. notepad, chrome, calculator, explorer, paint, task manager, cmd"}
-        }, "required": ["app_name"]},
-    }},
-    {"type": "function", "function": {
-        "name": "close_app", "description": "Close a known running app.",
-        "parameters": {"type": "object", "properties": {
-            "app_name": {"type": "string"}
-        }, "required": ["app_name"]},
-    }},
-    {"type": "function", "function": {
-        "name": "set_volume", "description": "Change system volume.",
-        "parameters": {"type": "object", "properties": {
-            "action": {"type": "string", "enum": ["up", "down", "mute"]}
-        }, "required": ["action"]},
-    }},
-    {"type": "function", "function": {
-        "name": "media_control", "description": "Control media playback.",
-        "parameters": {"type": "object", "properties": {
-            "action": {"type": "string", "enum": ["play_pause", "next", "previous"]}
-        }, "required": ["action"]},
-    }},
-    {"type": "function", "function": {
-        "name": "lock_pc", "description": "Lock the PC screen.",
-        "parameters": {"type": "object", "properties": {}},
-    }},
-    {"type": "function", "function": {
-        "name": "shutdown_pc", "description": "Shut down the PC.",
-        "parameters": {"type": "object", "properties": {
-            "seconds": {"type": "integer", "description": "delay before shutdown"}
-        }},
-    }},
-    {"type": "function", "function": {
-        "name": "cancel_shutdown", "description": "Cancel a pending shutdown or restart.",
-        "parameters": {"type": "object", "properties": {}},
-    }},
-    {"type": "function", "function": {
-        "name": "restart_pc", "description": "Restart the PC.",
-        "parameters": {"type": "object", "properties": {
-            "seconds": {"type": "integer"}
-        }},
-    }},
-    {"type": "function", "function": {
-        "name": "get_battery", "description": "Get battery percentage and charging status.",
-        "parameters": {"type": "object", "properties": {}},
-    }},
-    {"type": "function", "function": {
-        "name": "get_time", "description": "Get the current date and time.",
-        "parameters": {"type": "object", "properties": {}},
-    }},
-    {"type": "function", "function": {
-        "name": "take_screenshot", "description": "Take a screenshot and save it.",
-        "parameters": {"type": "object", "properties": {}},
-    }},
-    {"type": "function", "function": {
-        "name": "open_website", "description": "Open a specific website by URL.",
-        "parameters": {"type": "object", "properties": {
-            "url": {"type": "string"}
-        }, "required": ["url"]},
-    }},
-    {"type": "function", "function": {
-        "name": "web_search", "description": "Search the web for a query.",
-        "parameters": {"type": "object", "properties": {
-            "query": {"type": "string"}
-        }, "required": ["query"]},
-    }},
-    {"type": "function", "function": {
-        "name": "create_voice_profile", "description": "Register a new user's voice profile for login.",
-        "parameters": {"type": "object", "properties": {
-            "username": {"type": "string"}
-        }, "required": ["username"]},
-    }},
+    _tool("open_app", "Open any installed app by name (e.g. brave, spotify, notepad).",
+          {"app_name": {"type": "string"}}, ["app_name"]),
+    _tool("close_app", "Close a running app by name.",
+          {"app_name": {"type": "string"}}, ["app_name"]),
+    _tool("set_volume", "Change system volume.",
+          {"action": {"type": "string", "enum": ["up", "down", "mute"]}}, ["action"]),
+    _tool("media_control", "Control media playback.",
+          {"action": {"type": "string", "enum": ["play_pause", "next", "previous"]}}, ["action"]),
+    _tool("lock_pc", "Lock the PC screen."),
+    _tool("shutdown_pc", "Shut down the PC.",
+          {"seconds": {"type": "integer", "description": "delay before shutdown"}}),
+    _tool("cancel_shutdown", "Cancel a pending shutdown or restart."),
+    _tool("restart_pc", "Restart the PC.", {"seconds": {"type": "integer"}}),
+    _tool("get_battery", "Get battery percentage and charging status."),
+    _tool("get_time", "Get the current date and time."),
+    _tool("take_screenshot", "Take a screenshot and save it to Pictures/GestVox."),
+    _tool("open_website", "Open a specific website by URL.",
+          {"url": {"type": "string"}}, ["url"]),
+    _tool("get_weather", "Get live current weather. Leave city empty for the user's location.",
+          {"city": {"type": "string"}}),
+    _tool("web_search", "Open a web search in the browser for the user to read. "
+          "You cannot see the results.",
+          {"query": {"type": "string"}}, ["query"]),
+    _tool("run_powershell", "Run any Windows PowerShell command on the PC and get its output. "
+          "Use for anything without a dedicated tool.",
+          {"command": {"type": "string", "description": "PowerShell 5.1 command"}}, ["command"]),
+    _tool("set_wifi", "Turn Wi-Fi on or off.",
+          {"state": {"type": "string", "enum": ["on", "off"]}}, ["state"]),
+    _tool("set_bluetooth", "Turn Bluetooth on or off.",
+          {"state": {"type": "string", "enum": ["on", "off"]}}, ["state"]),
+    _tool("window_action", "Control windows and tabs.",
+          {"action": {"type": "string", "enum": list(sc.WINDOW_ACTIONS.keys())}}, ["action"]),
+    _tool("press_keys", "Press a key or shortcut, e.g. 'ctrl+c', 'enter', 'win+e'.",
+          {"keys": {"type": "string"}}, ["keys"]),
+    _tool("type_text", "Type text into the focused window.",
+          {"text": {"type": "string"}}, ["text"]),
+    _tool("get_clipboard", "Read the clipboard text."),
+    _tool("set_clipboard", "Copy text to the clipboard.",
+          {"text": {"type": "string"}}, ["text"]),
+    _tool("create_voice_profile", "Register a new user's voice profile for login.",
+          {"username": {"type": "string"}}, ["username"]),
 ]
 
 FUNCTION_MAP = {
@@ -113,7 +98,16 @@ FUNCTION_MAP = {
     "get_time": lambda a: sc.get_time(),
     "take_screenshot": lambda a: sc.take_screenshot(),
     "open_website": lambda a: sc.open_website(a["url"]),
+    "get_weather": lambda a: sc.get_weather(a.get("city", "")),
     "web_search": lambda a: sc.web_search(a["query"]),
+    "run_powershell": lambda a: sc.run_powershell(a["command"]),
+    "set_wifi": lambda a: sc.set_wifi(a["state"]),
+    "set_bluetooth": lambda a: sc.set_bluetooth(a["state"]),
+    "window_action": lambda a: sc.window_action(a["action"]),
+    "press_keys": lambda a: sc.press_keys(a["keys"]),
+    "type_text": lambda a: sc.type_text(a["text"]),
+    "get_clipboard": lambda a: sc.get_clipboard(),
+    "set_clipboard": lambda a: sc.set_clipboard(a["text"]),
     "create_voice_profile": lambda a: auth_flow.enroll_new_user(a["username"]),
 }
 
@@ -125,25 +119,44 @@ class AIBrain:
         user_session.on_change(lambda _user: self._memory.switch_path(user_session.memory_path()))
 
     def _build_system_prompt(self):
+        prompt = BASE_SYSTEM_PROMPT
+        username = user_session.get_user()
+        if username:
+            prompt += (f"\n\nThe current user was identified by voice login. "
+                       f"Their name is {username.capitalize()}.")
         facts = self._memory.get_facts()
-        if not facts:
-            return BASE_SYSTEM_PROMPT
-        facts_block = "\n".join(f"- {f}" for f in facts)
-        return (
-            f"{BASE_SYSTEM_PROMPT}\n\n"
-            f"Known facts about the user so far, treat these as true:\n"
-            f"{facts_block}"
-        )
+        if facts:
+            facts_block = "\n".join(f"- {f}" for f in facts)
+            prompt += f"\n\nKnown facts about the user so far, treat these as true:\n{facts_block}"
+        return prompt
 
     def _parse_reply(self, raw_reply):
-        if not raw_reply or "FACT:" not in raw_reply:
-            return (raw_reply or "").strip(), None
-        reply_part, _, fact_part = raw_reply.rpartition("FACT:")
-        reply_part = reply_part.strip()
-        fact_part = fact_part.strip()
-        if not fact_part or fact_part.upper() == "NONE":
+        # Splits off the trailing "FACT:" line (any case) so it's never spoken
+        raw_reply = (raw_reply or "").strip()
+        matches = list(re.finditer(r"fact\s*:", raw_reply, flags=re.I))
+        if not matches:
+            return raw_reply, None
+        cut = matches[-1]
+        reply_part = raw_reply[:cut.start()].strip()
+        fact_part = raw_reply[cut.end():].strip().strip(".")
+        if not fact_part or fact_part.upper().startswith("NONE"):
             return reply_part, None
         return reply_part, fact_part
+
+    def _complete(self, messages):
+        # reasoning_effort goes through extra_body so it works on any SDK version.
+        # Tools are passed on every round, since gpt-oss errors if it tries to
+        # call a tool on a request that has none.
+        return self._client.chat.completions.create(
+            model=config.GROQ_MODEL,
+            messages=messages,
+            tools=TOOLS,
+            tool_choice="auto",
+            temperature=0.5,
+            max_tokens=1024,
+            extra_body={"reasoning_effort": config.GROQ_REASONING_EFFORT,
+                        "include_reasoning": False},
+        )
 
     def _run_tool_calls(self, tool_calls):
         results = []
@@ -154,11 +167,13 @@ class AIBrain:
             except json.JSONDecodeError:
                 args = {}
             handler = FUNCTION_MAP.get(name)
-            output = handler(args) if handler else f"Unknown tool: {name}"
-            results.append({
-                "tool_call_id": call.id, "role": "tool",
-                "name": name, "content": str(output),
-            })
+            try:
+                output = handler(args) if handler else f"Unknown tool: {name}"
+            except Exception as e:
+                output = f"Tool {name} failed: {e}"
+            print(f"[AI] Tool {name}({args}) -> {output}")
+            results.append({"role": "tool", "tool_call_id": call.id,
+                            "name": name, "content": str(output)})
         return results
 
     def ask(self, user_text):
@@ -166,37 +181,39 @@ class AIBrain:
         messages.extend(self._memory.get_history())
         messages.append({"role": "user", "content": user_text})
 
+        raw_reply = ""
         try:
-            response = self._client.chat.completions.create(
-                model=config.GROQ_MODEL, messages=messages,
-                tools=TOOLS, tool_choice="auto", temperature=0.5, max_tokens=350,
-            )
-            msg = response.choices[0].message
-
-            if msg.tool_calls:
-                messages.append(msg)
+            for _ in range(MAX_TOOL_ROUNDS):
+                msg = self._complete(messages).choices[0].message
+                if not msg.tool_calls:
+                    raw_reply = (msg.content or "").strip()
+                    break
+                messages.append({
+                    "role": "assistant",
+                    "content": msg.content or "",
+                    "tool_calls": [
+                        {"id": c.id, "type": "function",
+                         "function": {"name": c.function.name,
+                                      "arguments": c.function.arguments or "{}"}}
+                        for c in msg.tool_calls
+                    ],
+                })
                 messages.extend(self._run_tool_calls(msg.tool_calls))
-                follow_up = self._client.chat.completions.create(
-                    model=config.GROQ_MODEL, messages=messages,
-                    temperature=0.5, max_tokens=200,
-                )
-                raw_reply = follow_up.choices[0].message.content.strip()
-            else:
-                raw_reply = (msg.content or "").strip()
         except Exception as e:
-            self._memory.add_turn("user", user_text)
-            return f"I couldn't reach the AI service. {e}"
+            print(f"[AI] Request failed: {e}")
+            return "Sorry, I couldn't reach the AI service."
 
         reply, fact = self._parse_reply(raw_reply)
+        if not reply:
+            reply = "Done."
         if fact:
             self._memory.add_fact(fact)
 
-        self._memory.add_turn("user", user_text)
-        self._memory.add_turn("assistant", reply)
+        self.record_exchange(user_text, reply)
         return reply
 
     def record_exchange(self, user_text, reply):
-        # Saves locally handled commands so follow-up questions have context
+        # Saves locally handled commands too, so follow-up questions have context
         self._memory.add_turn("user", user_text)
         self._memory.add_turn("assistant", reply)
 

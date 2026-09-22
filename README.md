@@ -12,16 +12,17 @@ Hands-free control for Windows. Move your mouse, click, and scroll with hand ges
 | Pinch thumb + index | Click (quick double pinch = double-click) |
 | Pinch thumb + pinky | Right-click |
 | Pinch thumb + middle, move hand up/down | Scroll |
-| Closed fist (held ~0.5s) | Switch between gesture and voice mode |
-| Open palm | Play/pause media |
+| Closed fist (hold ~1s) | Switch between gesture and voice mode (works in both modes) |
+| Open palm (hold still ~1s) | Play/pause media |
 | Thumbs up | Volume up |
 | Thumbs down | Volume down |
 | Victory ✌ | Screenshot |
-| I love you 🤟 | Lock PC |
+| I love you 🤟 (hold ~1.5s) | Lock PC |
 
 **Voice assistant**
 
-- Wake word activation ("hey vox")
+- Wake word starts a session ("hey vox"), it keeps listening until you say "bye"
+- Speech to text with Groq Whisper (large-v3 for commands, turbo while idle), with voice activity detection to skip noise
 - Full conversational AI (Groq/Llama) for questions and chat
 - Persistent memory: remembers facts about you across restarts, and keeps learning from every conversation (corrections included)
 - System control by voice: open/close apps, volume, media, lock/shutdown/restart, battery, time, screenshot, open websites, web search
