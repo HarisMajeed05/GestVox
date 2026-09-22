@@ -30,6 +30,9 @@ CLICK_DISTANCE_THRESHOLD = 35 # pixels, thumb-index pinch distance
 SCROLL_SENSITIVITY = 15
 FRAME_MARGIN = 100            # ignore edges of frame for stable cursor mapping
  
+# Multi-user
+VOICE_LOGIN_ENABLED = True  # set False to skip login and use shared memory
+ 
 # Voice settings
 MIC_DEVICE_INDEX = None  # None = system default. Run list_mics.py to see options.
 MIC_ENERGY_THRESHOLD = 300

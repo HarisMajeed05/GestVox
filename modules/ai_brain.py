@@ -2,7 +2,9 @@ import json
 from groq import Groq
 import config
 from modules.memory_store import MemoryStore
+from modules.user_session import user_session
 from modules import system_control as sc
+from modules import auth_flow
 
 BASE_SYSTEM_PROMPT = (
     "You are GestVox, a personal voice assistant running on the user's "
@@ -90,6 +92,12 @@ TOOLS = [
             "query": {"type": "string"}
         }, "required": ["query"]},
     }},
+    {"type": "function", "function": {
+        "name": "create_voice_profile", "description": "Register a new user's voice profile for login.",
+        "parameters": {"type": "object", "properties": {
+            "username": {"type": "string"}
+        }, "required": ["username"]},
+    }},
 ]
 
 FUNCTION_MAP = {
@@ -106,13 +114,15 @@ FUNCTION_MAP = {
     "take_screenshot": lambda a: sc.take_screenshot(),
     "open_website": lambda a: sc.open_website(a["url"]),
     "web_search": lambda a: sc.web_search(a["query"]),
+    "create_voice_profile": lambda a: auth_flow.enroll_new_user(a["username"]),
 }
 
 
 class AIBrain:
     def __init__(self):
         self._client = Groq(api_key=config.GROQ_API_KEY)
-        self._memory = MemoryStore()
+        self._memory = MemoryStore(user_session.memory_path())
+        user_session.on_change(lambda _user: self._memory.switch_path(user_session.memory_path()))
 
     def _build_system_prompt(self):
         facts = self._memory.get_facts()

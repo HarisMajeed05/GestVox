@@ -1,5 +1,6 @@
 .env
 gestvox_memory.json
+users/
 __pycache__/
 *.pyc
 *.pyo

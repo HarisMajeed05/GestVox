@@ -1,17 +1,21 @@
 import json
 import os
+from difflib import SequenceMatcher
 
-MEMORY_FILE = "gestvox_memory.json"
+SIMILARITY_REPLACE_THRESHOLD = 0.6
+
+DEFAULT_MEMORY_FILE = "gestvox_memory.json"
 MAX_HISTORY_MESSAGES = 40  # keep file small, older turns get dropped
 
 
 class MemoryStore:
-    def __init__(self, path=MEMORY_FILE):
-        self._path = path
+    def __init__(self, path=None):
+        self._path = path or DEFAULT_MEMORY_FILE
         self._data = {"history": [], "facts": []}
         self._load()
 
     def _load(self):
+        os.makedirs(os.path.dirname(self._path) or ".", exist_ok=True)
         if os.path.exists(self._path):
             try:
                 with open(self._path, "r", encoding="utf-8") as f:
@@ -38,10 +42,23 @@ class MemoryStore:
 
     def add_fact(self, fact):
         facts = self._data.setdefault("facts", [])
-        if fact not in facts:
-            facts.append(fact)
-            self._save()
+        if fact in facts:
+            return
+        # A new fact similar to an old one is treated as a correction/update
+        for i, existing in enumerate(facts):
+            similarity = SequenceMatcher(None, existing.lower(), fact.lower()).ratio()
+            if similarity >= SIMILARITY_REPLACE_THRESHOLD:
+                facts[i] = fact
+                self._save()
+                return
+        facts.append(fact)
+        self._save()
 
     def clear(self):
         self._data = {"history": [], "facts": []}
         self._save()
+
+    def switch_path(self, new_path):
+        self._path = new_path
+        self._data = {"history": [], "facts": []}
+        self._load()
