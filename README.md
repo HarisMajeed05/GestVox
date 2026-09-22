@@ -1,74 +1,74 @@
 # GestVox
 
-Gesture + voice controlled interface for Windows.
+Hands-free control for Windows. Move your mouse, click, and scroll with hand gestures, or talk to a full voice assistant, complete with memory, system control, and per-user voice login.
+
+## Features
+
+**Gesture control** (MediaPipe hand tracking + pretrained gesture recognizer)
+
+- Move cursor with index finger
+- Pinch thumb+index: click / double-click
+- Pinch thumb+pinky: right-click
+- Pinch thumb+middle, move hand up/down: scroll
+- Closed fist (held): switch between gesture and voice mode
+- Open palm: play/pause media
+- Thumbs up / down: volume up / down
+- Victory sign: screenshot
+- I love you sign: lock PC
+
+**Voice assistant**
+
+- Wake word activation ("hey vox")
+- Full conversational AI (Groq/Llama) for questions and chat
+- Persistent memory: remembers facts about you across restarts, and keeps learning from every conversation (corrections included)
+- System control by voice: open/close apps, volume, media, lock/shutdown/restart, battery, time, screenshot, open websites, web search
+
+**Multi-user**
+
+- Voice biometric login: each person gets their own recognized voice profile
+- Separate memory/data per user, nobody sees anyone else's facts or history
+
+**Other**
+
+- Remote camera support: run the camera on a different device (e.g. a laptop) over local network or Tailscale, useful if the PC has no webcam
+- Small always-on-top overlay to see/switch mode manually
+- Live gesture detection log (console + on-screen label)
 
 ## Setup
 
-1. `conda env create -f environment.yml`
-2. `conda activate gestvox`
-3. Copy `.env.example` to `.env` and paste your Groq API key.
-4. Run: `python main.py`
+1. `conda env create -f environment.yml` then `conda activate gestvox`
+   (or `pip install -r requirements.txt`)
+2. Copy `.env.example` to `.env` and add your Groq API key
+3. Run `python main.py`
 
-Alternative (pip only, no conda):
+First run downloads the gesture recognition model (~8MB) automatically.
 
-1. `pip install -r requirements.txt`
-2. Copy `.env.example` to `.env` and paste your Groq API key.
-3. Run: `python main.py`
+## Voice login
 
-## Controls
+On startup, say a short phrase. Recognized voice → logs you in. Unknown voice → say "my name is <name>" to create a profile. You can also say "create a profile for <name>" any time during a conversation.
 
-**Gesture mode (default)**
+## Remote camera
 
-- Move index finger: moves cursor
-- Pinch thumb + index: click (quick double pinch: double-click)
-- Pinch thumb + middle, move hand up/down: scroll
-- Hold a fist for 1 second: switch to voice mode
+If the PC has no webcam, run `camera_server.py` on another device with a camera, then set `CAMERA_SOURCE = "remote"` and `REMOTE_CAMERA_URL` in `config.py`. See below for same-network and cross-network (Tailscale) setup.
 
-**Voice mode**
+### Same local network
 
-- Say a wake word ("hey air control") then speak your request or question
-- Say "switch to gesture mode" any time to go back
-- Say "exit" or "quit" to end a voice interaction
+1. On the camera device: `python camera_server.py`
+2. Find its local IP (`ipconfig`)
+3. Set `REMOTE_CAMERA_URL = "http://<ip>:8080/video"`
 
-**Overlay window**
+### Different networks (Tailscale)
 
-- Small always-on-top panel with a button to switch modes manually
-- Shows current active mode
+1. Install Tailscale on both devices, log into the same account
+2. Get the camera device's Tailscale IP (`tailscale ip -4`)
+3. Set `REMOTE_CAMERA_URL = "http://<tailscale-ip>:8080/video"`
 
-## Remote camera (PC has no webcam)
+## Mic issues
 
-If the PC running `main.py` has no camera, run the camera on another
-device (e.g. a laptop) on the same network:
-
-1. On the laptop: `python camera_server.py`
-2. Find the laptop's local IP (`ipconfig` on Windows).
-3. On the PC, in `config.py`, set:
-   - `CAMERA_SOURCE = "remote"`
-   - `REMOTE_CAMERA_URL = "http://<laptop-ip>:8080/video"`
-4. Run `main.py` on the PC as usual.
-
-Both devices must be on the same local network. If the PC and laptop
-are in different locations/networks, use Tailscale instead:
-
-### Tailscale setup (PC and laptop in different locations)
-
-1. Sign up free at <https://tailscale.com>
-2. Install Tailscale on **both** the laptop and the PC:
-   - Windows: download from <https://tailscale.com/download>
-3. Run Tailscale on both machines and log in with the same account.
-4. On the laptop, find its Tailscale IP:
-   - Open Tailscale app, or run `tailscale ip -4` in terminal
-   - Looks like `100.x.x.x`
-5. On the laptop, run `python camera_server.py` as usual.
-6. On the PC, in `config.py`, use the Tailscale IP instead of the local one:
-   - `REMOTE_CAMERA_URL = "http://100.x.x.x:8080/video"`
-7. Run `main.py` on the PC.
-
-No router or firewall port forwarding needed. Both devices just need
-Tailscale running and logged into the same account.
+If you get a mic error on startup, run `python list_mics.py`, note the correct device number, and set `MIC_DEVICE_INDEX` in `config.py`.
 
 ## Notes
 
-- Press `Esc` in the camera preview window to close it (app keeps running).
-- Close the overlay window to fully exit the app.
-- PyAudio may need `pip install pipwin` then `pipwin install pyaudio` on some Windows setups if the normal install fails.
+- Press `Esc` in the camera preview window to close it (app keeps running)
+- Close the overlay window to fully exit
+- PyAudio may need `pip install pipwin` then `pipwin install pyaudio` on some Windows setups
