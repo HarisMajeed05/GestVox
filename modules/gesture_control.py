@@ -15,6 +15,36 @@ def distance(p1, p2):
     return math.hypot(p1[0] - p2[0], p1[1] - p2[1])
 
 
+class LatestFrameReader:
+    # Continuously reads frames in a background thread and only keeps the
+    # most recent one. Prevents lag from network stream buffering, where
+    # the default read() call returns old queued frames instead of live ones.
+    def __init__(self, cap):
+        self._cap = cap
+        self._frame = None
+        self._lock = threading.Lock()
+        self._running = True
+        self._thread = threading.Thread(target=self._update, daemon=True)
+        self._thread.start()
+
+    def _update(self):
+        while self._running:
+            ok, frame = self._cap.read()
+            if ok:
+                with self._lock:
+                    self._frame = frame
+
+    def read(self):
+        with self._lock:
+            if self._frame is None:
+                return False, None
+            return True, self._frame.copy()
+
+    def stop(self):
+        self._running = False
+        self._thread.join(timeout=2)
+
+
 class GestureControl:
     def __init__(self, toggle_callback=None):
         self._toggle_callback = toggle_callback
@@ -29,6 +59,7 @@ class GestureControl:
         self._mp_hands = mp.solutions.hands
         self._hands = self._mp_hands.Hands(
             max_num_hands=config.MAX_NUM_HANDS,
+            model_complexity=config.HAND_MODEL_COMPLEXITY,
             min_detection_confidence=config.HAND_DETECTION_CONFIDENCE,
             min_tracking_confidence=config.HAND_TRACKING_CONFIDENCE,
         )
@@ -56,12 +87,26 @@ class GestureControl:
         return folded >= 4
 
     def _run(self):
-        cap = cv2.VideoCapture(config.CAM_INDEX)
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, config.FRAME_WIDTH)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, config.FRAME_HEIGHT)
+        if config.CAMERA_SOURCE == "remote":
+            source = config.REMOTE_CAMERA_URL
+        else:
+            source = config.CAM_INDEX
 
-        while self._running and cap.isOpened():
-            ok, frame = cap.read()
+        backend = cv2.CAP_DSHOW if config.CAMERA_SOURCE == "local" else cv2.CAP_FFMPEG
+        cap = cv2.VideoCapture(source, backend)
+        if config.CAMERA_SOURCE == "local":
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, config.FRAME_WIDTH)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, config.FRAME_HEIGHT)
+
+        if not cap.isOpened():
+            print(f"Could not open camera source: {source}")
+            self._running = False
+            return
+
+        reader = LatestFrameReader(cap)
+
+        while self._running:
+            ok, frame = reader.read()
             if not ok:
                 continue
             frame = cv2.flip(frame, 1)
@@ -88,6 +133,7 @@ class GestureControl:
             if cv2.waitKey(1) & 0xFF == 27:  # Esc closes preview window only
                 break
 
+        reader.stop()
         cap.release()
         cv2.destroyAllWindows()
 

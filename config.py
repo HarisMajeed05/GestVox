@@ -13,9 +13,15 @@ SWITCH_TO_VOICE_PHRASES = ["switch to voice", "voice mode", "use voice"]
 SWITCH_TO_GESTURE_PHRASES = ["switch to gesture", "gesture mode", "use gesture"]
 
 # Gesture settings (tuned for accuracy + responsiveness)
+# CAMERA_SOURCE: "local" uses CAM_INDEX (webcam on this PC).
+# "remote" reads a network stream from another device (e.g. a laptop)
+# running camera_server.py, useful when this PC has no camera.
+CAMERA_SOURCE = "remote"       # "local" or "remote"
 CAM_INDEX = 0
-FRAME_WIDTH = 960
-FRAME_HEIGHT = 540
+REMOTE_CAMERA_URL = "http://100.114.205.1:8080/video"  # set to laptop's stream URL
+FRAME_WIDTH = 640
+FRAME_HEIGHT = 360
+HAND_MODEL_COMPLEXITY = 0  # 0 = fastest, 1 = more accurate but slower
 HAND_DETECTION_CONFIDENCE = 0.8
 HAND_TRACKING_CONFIDENCE = 0.8
 MAX_NUM_HANDS = 1

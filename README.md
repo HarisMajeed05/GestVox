@@ -35,6 +35,38 @@ Alternative (pip only, no conda):
 - Small always-on-top panel with a button to switch modes manually
 - Shows current active mode
 
+## Remote camera (PC has no webcam)
+
+If the PC running `main.py` has no camera, run the camera on another
+device (e.g. a laptop) on the same network:
+
+1. On the laptop: `python camera_server.py`
+2. Find the laptop's local IP (`ipconfig` on Windows).
+3. On the PC, in `config.py`, set:
+   - `CAMERA_SOURCE = "remote"`
+   - `REMOTE_CAMERA_URL = "http://<laptop-ip>:8080/video"`
+4. Run `main.py` on the PC as usual.
+
+Both devices must be on the same local network. If the PC and laptop
+are in different locations/networks, use Tailscale instead:
+
+### Tailscale setup (PC and laptop in different locations)
+
+1. Sign up free at <https://tailscale.com>
+2. Install Tailscale on **both** the laptop and the PC:
+   - Windows: download from <https://tailscale.com/download>
+3. Run Tailscale on both machines and log in with the same account.
+4. On the laptop, find its Tailscale IP:
+   - Open Tailscale app, or run `tailscale ip -4` in terminal
+   - Looks like `100.x.x.x`
+5. On the laptop, run `python camera_server.py` as usual.
+6. On the PC, in `config.py`, use the Tailscale IP instead of the local one:
+   - `REMOTE_CAMERA_URL = "http://100.x.x.x:8080/video"`
+7. Run `main.py` on the PC.
+
+No router or firewall port forwarding needed. Both devices just need
+Tailscale running and logged into the same account.
+
 ## Notes
 
 - Press `Esc` in the camera preview window to close it (app keeps running).
