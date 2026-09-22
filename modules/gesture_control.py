@@ -55,6 +55,7 @@ class GestureControl:
         self._last_click_time = 0
         self._fist_start_time = None
         self._fist_triggered = False
+        self._current_gesture = "None"
 
         self._mp_hands = mp.solutions.hands
         self._hands = self._mp_hands.Hands(
@@ -123,6 +124,7 @@ class GestureControl:
             else:
                 self._fist_start_time = None
                 self._fist_triggered = False
+                self._current_gesture = "None"
                 cv2.putText(
                     frame, "No hand detected", (10, 60),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2,
@@ -131,6 +133,10 @@ class GestureControl:
             cv2.putText(
                 frame, f"Mode: {mode_manager.get_mode()}", (10, 30),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2,
+            )
+            cv2.putText(
+                frame, f"Gesture: {self._current_gesture}", (10, h - 15),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 200, 0), 2,
             )
             cv2.imshow(config.APP_NAME, frame)
             if cv2.waitKey(1) & 0xFF == 27:  # Esc closes preview window only
@@ -147,10 +153,12 @@ class GestureControl:
 
         # Fist held for 1s toggles mode (gesture <-> voice)
         if self._is_fist(landmarks):
+            self._current_gesture = "Fist (hold to switch mode)"
             if self._fist_start_time is None:
                 self._fist_start_time = time.time()
             elif not self._fist_triggered and time.time() - self._fist_start_time > 1.0:
                 self._fist_triggered = True
+                self._log_gesture("Mode switch (fist held)")
                 if self._toggle_callback:
                     self._toggle_callback()
             return
@@ -173,6 +181,8 @@ class GestureControl:
         pyautogui.moveTo(smooth_x, smooth_y)
         self._prev_x, self._prev_y = smooth_x, smooth_y
 
+        self._current_gesture = "Cursor move"
+
         # Pinch (thumb+index) = click, quick double pinch = double-click
         pinch_dist = distance(thumb_tip, index_tip)
         if pinch_dist < config.CLICK_DISTANCE_THRESHOLD:
@@ -180,8 +190,12 @@ class GestureControl:
                 now = time.time()
                 if now - self._last_click_time < 0.4:
                     pyautogui.doubleClick()
+                    self._current_gesture = "Double-click"
+                    self._log_gesture("Double-click")
                 else:
                     pyautogui.click()
+                    self._current_gesture = "Click"
+                    self._log_gesture("Click")
                 self._last_click_time = now
                 self._clicking = True
         else:
@@ -193,6 +207,12 @@ class GestureControl:
             delta = self._prev_y - y
             if abs(delta) > 2:
                 pyautogui.scroll(int(delta / config.SCROLL_SENSITIVITY) * 10)
+                direction = "up" if delta > 0 else "down"
+                self._current_gesture = f"Scroll {direction}"
+                self._log_gesture(f"Scroll {direction}")
+
+    def _log_gesture(self, name):
+        print(f"[Gesture] {name}")
 
 
 def _map_range(value, in_min, in_max, out_min, out_max):
