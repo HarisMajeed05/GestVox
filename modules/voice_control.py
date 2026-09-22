@@ -1,5 +1,6 @@
 import speech_recognition as sr
 import threading
+import time
 import config
 from modules.mode_manager import mode_manager
 from modules.ai_brain import ai_brain
@@ -14,11 +15,15 @@ class VoiceControl:
         self._recognizer = sr.Recognizer()
         self._recognizer.energy_threshold = config.MIC_ENERGY_THRESHOLD
         self._recognizer.pause_threshold = config.MIC_PAUSE_THRESHOLD
-        self._mic = sr.Microphone()
+        self._mic = sr.Microphone(device_index=config.MIC_DEVICE_INDEX)
         self._awake = False
 
-        with self._mic as source:
-            self._recognizer.adjust_for_ambient_noise(source, duration=1)
+        try:
+            with self._mic as source:
+                self._recognizer.adjust_for_ambient_noise(source, duration=1)
+        except OSError as e:
+            print(f"Microphone init failed: {e}. Run list_mics.py and set "
+                  f"MIC_DEVICE_INDEX in config.py.")
 
     def start(self):
         if self._running:
@@ -33,13 +38,16 @@ class VoiceControl:
             self._thread.join(timeout=2)
 
     def _listen_once(self, timeout=None, phrase_time_limit=8):
-        with self._mic as source:
-            try:
+        try:
+            with self._mic as source:
                 audio = self._recognizer.listen(
                     source, timeout=timeout, phrase_time_limit=phrase_time_limit
                 )
-            except sr.WaitTimeoutError:
-                return ""
+        except sr.WaitTimeoutError:
+            return ""
+        except OSError:
+            time.sleep(1)  # transient device error, back off and retry next loop
+            return ""
         try:
             return self._recognizer.recognize_google(audio).lower()
         except (sr.UnknownValueError, sr.RequestError):
