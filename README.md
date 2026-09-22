@@ -6,15 +6,18 @@ Hands-free control for Windows. Move your mouse, click, and scroll with hand ges
 
 **Gesture control** (MediaPipe hand tracking + pretrained gesture recognizer)
 
-- Move cursor with index finger
-- Pinch thumb+index: click / double-click
-- Pinch thumb+pinky: right-click
-- Pinch thumb+middle, move hand up/down: scroll
-- Closed fist (held): switch between gesture and voice mode
-- Open palm: play/pause media
-- Thumbs up / down: volume up / down
-- Victory sign: screenshot
-- I love you sign: lock PC
+| Gesture | Action |
+| --- | --- |
+| Move index finger | Move cursor |
+| Pinch thumb + index | Click (quick double pinch = double-click) |
+| Pinch thumb + pinky | Right-click |
+| Pinch thumb + middle, move hand up/down | Scroll |
+| Closed fist (held ~0.5s) | Switch between gesture and voice mode |
+| Open palm | Play/pause media |
+| Thumbs up | Volume up |
+| Thumbs down | Volume down |
+| Victory ✌ | Screenshot |
+| I love you 🤟 | Lock PC |
 
 **Voice assistant**
 
