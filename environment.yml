@@ -19,5 +19,6 @@ dependencies:
       - flask==3.0.3
       - customtkinter==5.2.2
       - psutil==6.0.0
+      - setuptools<81
       - resemblyzer==0.1.4
       - soundfile==0.12.1
