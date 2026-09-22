@@ -8,7 +8,7 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GROQ_MODEL = "llama-3.3-70b-versatile"
 
 # Wake word settings
-WAKE_WORDS = ["hey vox", "hey gestvox"]
+WAKE_WORDS = ["hey vox", "hey gest", "hey gestvox"]
 SWITCH_TO_VOICE_PHRASES = ["switch to voice", "voice mode", "use voice"]
 SWITCH_TO_GESTURE_PHRASES = ["switch to gesture", "gesture mode", "use gesture"]
 
