@@ -20,13 +20,22 @@ CAM_INDEX = 0
 PORT = 8080
 
 
+STREAM_WIDTH = 640
+JPEG_QUALITY = 75  # lower = smaller/faster over network, less sharp
+
+
 def generate_frames():
     cap = cv2.VideoCapture(CAM_INDEX)
     while True:
         ok, frame = cap.read()
         if not ok:
             continue
-        ok, buffer = cv2.imencode(".jpg", frame)
+        h, w = frame.shape[:2]
+        scale = STREAM_WIDTH / w
+        frame = cv2.resize(frame, (STREAM_WIDTH, int(h * scale)))
+        ok, buffer = cv2.imencode(
+            ".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY]
+        )
         if not ok:
             continue
         frame_bytes = buffer.tobytes()
