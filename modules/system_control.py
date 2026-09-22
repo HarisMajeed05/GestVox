@@ -4,6 +4,8 @@ import webbrowser
 import ctypes
 import pyautogui
 import psutil
+
+pyautogui.PAUSE = 0
 from datetime import datetime
 
 KNOWN_APPS = {
@@ -11,8 +13,8 @@ KNOWN_APPS = {
     "calculator": "calc.exe",
     "explorer": "explorer.exe",
     "file explorer": "explorer.exe",
-    "brave": "brave.exe",
-    "browser": "brave.exe",
+    "chrome": "chrome.exe",
+    "browser": "chrome.exe",
     "paint": "mspaint.exe",
     "task manager": "taskmgr.exe",
     "cmd": "cmd.exe",

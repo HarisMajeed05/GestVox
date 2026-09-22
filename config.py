@@ -25,7 +25,7 @@ HAND_MODEL_COMPLEXITY = 1  # 0 = fastest/least accurate, 1 = balanced
 HAND_DETECTION_CONFIDENCE = 0.6
 HAND_TRACKING_CONFIDENCE = 0.6
 MAX_NUM_HANDS = 1
-SMOOTHING_FACTOR = 5          # higher = smoother, slightly more lag
+SMOOTHING_FACTOR = 3          # higher = smoother, slightly more lag
 # Pinch thresholds as a fraction of hand size (wrist-to-middle-knuckle
 # distance), so detection adapts to hand distance from the camera instead
 # of relying on fixed pixel values.

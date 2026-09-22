@@ -9,11 +9,29 @@ from modules.gesture_model import GestureModel
 from modules import system_control as sc
 
 pyautogui.FAILSAFE = False
+pyautogui.PAUSE = 0  # default 0.1s pause after every call was causing cursor lag
 screen_w, screen_h = pyautogui.size()
 
 # Cooldown per built-in gesture so a held pose doesn't repeat-fire
 BUILTIN_GESTURE_COOLDOWN = 1.2
 BUILTIN_GESTURE_HOLD_TIME = 0.5  # seconds a gesture must be held before it fires
+
+# Standard MediaPipe hand landmark connections, for drawing the skeleton
+HAND_CONNECTIONS = [
+    (0, 1), (1, 2), (2, 3), (3, 4),
+    (0, 5), (5, 6), (6, 7), (7, 8),
+    (5, 9), (9, 10), (10, 11), (11, 12),
+    (9, 13), (13, 14), (14, 15), (15, 16),
+    (13, 17), (17, 18), (18, 19), (19, 20),
+    (0, 17),
+]
+
+
+def draw_landmarks(frame, landmarks):
+    for a, b in HAND_CONNECTIONS:
+        cv2.line(frame, landmarks[a], landmarks[b], (0, 200, 0), 2)
+    for point in landmarks:
+        cv2.circle(frame, point, 4, (0, 100, 255), -1)
 
 
 def distance(p1, p2):
@@ -116,6 +134,7 @@ class GestureControl:
             landmarks, gesture_name, gesture_score = self._model.process(rgb)
 
             if landmarks:
+                draw_landmarks(frame, landmarks)
                 self._handle_frame(landmarks, gesture_name, gesture_score, w, h)
             else:
                 self._current_gesture = "None"
@@ -157,7 +176,7 @@ class GestureControl:
         self._current_gesture = label
         now = time.time()
 
-        if gesture_name != self._last_builtin_name:
+        if gesture_name != self._last_builtin_name or self._gesture_hold_start is None:
             self._gesture_hold_start = now
             self._last_builtin_name = gesture_name
             return
