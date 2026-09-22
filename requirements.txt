@@ -1,0 +1,9 @@
+opencv-python==4.10.0.84
+mediapipe==0.10.14
+pyautogui==0.9.54
+numpy==1.26.4
+SpeechRecognition==3.10.4
+PyAudio==0.2.14
+pyttsx3==2.90
+groq==0.11.0
+python-dotenv==1.0.1
