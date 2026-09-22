@@ -124,6 +124,10 @@ class GestureControl:
             else:
                 self._fist_start_time = None
                 self._fist_triggered = False
+                cv2.putText(
+                    frame, "No hand detected", (10, 60),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2,
+                )
 
             cv2.putText(
                 frame, f"Mode: {mode_manager.get_mode()}", (10, 30),

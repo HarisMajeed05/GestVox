@@ -21,9 +21,9 @@ CAM_INDEX = 0
 REMOTE_CAMERA_URL = "http://100.114.205.1:8080/video"  # set to laptop's stream URL
 FRAME_WIDTH = 640
 FRAME_HEIGHT = 360
-HAND_MODEL_COMPLEXITY = 0  # 0 = fastest, 1 = more accurate but slower
-HAND_DETECTION_CONFIDENCE = 0.8
-HAND_TRACKING_CONFIDENCE = 0.8
+HAND_MODEL_COMPLEXITY = 1  # 0 = fastest/least accurate, 1 = balanced
+HAND_DETECTION_CONFIDENCE = 0.6
+HAND_TRACKING_CONFIDENCE = 0.6
 MAX_NUM_HANDS = 1
 SMOOTHING_FACTOR = 5          # higher = smoother, slightly more lag
 CLICK_DISTANCE_THRESHOLD = 35 # pixels, thumb-index pinch distance
