@@ -1,14 +1,19 @@
 import cv2
-import mediapipe as mp
 import pyautogui
 import math
 import time
 import threading
 import config
 from modules.mode_manager import mode_manager
+from modules.gesture_model import GestureModel
+from modules import system_control as sc
 
 pyautogui.FAILSAFE = False
 screen_w, screen_h = pyautogui.size()
+
+# Cooldown per built-in gesture so a held pose doesn't repeat-fire
+BUILTIN_GESTURE_COOLDOWN = 1.2
+BUILTIN_GESTURE_HOLD_TIME = 0.5  # seconds a gesture must be held before it fires
 
 
 def distance(p1, p2):
@@ -53,18 +58,21 @@ class GestureControl:
         self._prev_x, self._prev_y = 0, 0
         self._clicking = False
         self._last_click_time = 0
-        self._fist_start_time = None
-        self._fist_triggered = False
         self._current_gesture = "None"
 
-        self._mp_hands = mp.solutions.hands
-        self._hands = self._mp_hands.Hands(
-            max_num_hands=config.MAX_NUM_HANDS,
-            model_complexity=config.HAND_MODEL_COMPLEXITY,
-            min_detection_confidence=config.HAND_DETECTION_CONFIDENCE,
-            min_tracking_confidence=config.HAND_TRACKING_CONFIDENCE,
-        )
-        self._drawer = mp.solutions.drawing_utils
+        self._model = GestureModel(num_hands=config.MAX_NUM_HANDS)
+
+        # Built-in gesture actions: name -> (label, handler function)
+        self._builtin_actions = {
+            "Closed_Fist": ("Fist -> switch mode", self._toggle_callback),
+            "Open_Palm": ("Open palm -> play/pause", lambda: sc.media_control("play_pause")),
+            "Thumb_Up": ("Thumbs up -> volume up", lambda: sc.set_volume("up")),
+            "Thumb_Down": ("Thumbs down -> volume down", lambda: sc.set_volume("down")),
+            "Victory": ("Victory -> screenshot", sc.take_screenshot),
+        }
+        self._gesture_hold_start = None
+        self._last_builtin_name = None
+        self._last_builtin_time = 0
 
     def start(self):
         if self._running:
@@ -77,15 +85,6 @@ class GestureControl:
         self._running = False
         if self._thread:
             self._thread.join(timeout=2)
-
-    def _is_fist(self, landmarks):
-        # Fist = all four fingertips below their middle knuckle (folded)
-        tips = [8, 12, 16, 20]
-        pips = [6, 10, 14, 18]
-        folded = sum(
-            1 for t, p in zip(tips, pips) if landmarks[t][1] > landmarks[p][1]
-        )
-        return folded >= 4
 
     def _run(self):
         if config.CAMERA_SOURCE == "remote":
@@ -113,18 +112,14 @@ class GestureControl:
             frame = cv2.flip(frame, 1)
             h, w, _ = frame.shape
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            result = self._hands.process(rgb)
 
-            if result.multi_hand_landmarks:
-                hand = result.multi_hand_landmarks[0]
-                self._drawer.draw_landmarks(frame, hand, self._mp_hands.HAND_CONNECTIONS)
-                landmarks = [(int(lm.x * w), int(lm.y * h)) for lm in hand.landmark]
+            landmarks, gesture_name, gesture_score = self._model.process(rgb)
 
-                self._handle_gestures(landmarks, w, h)
+            if landmarks:
+                self._handle_frame(landmarks, gesture_name, gesture_score, w, h)
             else:
-                self._fist_start_time = None
-                self._fist_triggered = False
                 self._current_gesture = "None"
+                self._gesture_hold_start = None
                 cv2.putText(
                     frame, "No hand detected", (10, 60),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2,
@@ -146,49 +141,53 @@ class GestureControl:
         cap.release()
         cv2.destroyAllWindows()
 
-    def _handle_gestures(self, landmarks, w, h):
+    def _handle_frame(self, landmarks, gesture_name, gesture_score, w, h):
+        if gesture_name in self._builtin_actions and gesture_score > 0.6:
+            self._handle_builtin_gesture(gesture_name)
+            return  # a recognized built-in gesture takes priority this frame
+
+        self._gesture_hold_start = None
+        if mode_manager.get_mode() == "GESTURE":
+            self._handle_cursor_and_pinch(landmarks, w, h)
+        else:
+            self._current_gesture = "None"
+
+    def _handle_builtin_gesture(self, gesture_name):
+        label, action = self._builtin_actions[gesture_name]
+        self._current_gesture = label
+        now = time.time()
+
+        if gesture_name != self._last_builtin_name:
+            self._gesture_hold_start = now
+            self._last_builtin_name = gesture_name
+            return
+
+        held_long_enough = now - self._gesture_hold_start >= BUILTIN_GESTURE_HOLD_TIME
+        cooldown_passed = now - self._last_builtin_time >= BUILTIN_GESTURE_COOLDOWN
+        if held_long_enough and cooldown_passed and action:
+            self._log_gesture(label)
+            action()
+            self._last_builtin_time = now
+            self._gesture_hold_start = now  # require re-hold before firing again
+
+    def _handle_cursor_and_pinch(self, landmarks, w, h):
         index_tip = landmarks[8]
         thumb_tip = landmarks[4]
         middle_tip = landmarks[12]
+        self._current_gesture = "Cursor move"
+        self._last_builtin_name = None
 
-        # Fist held for 1s toggles mode (gesture <-> voice)
-        if self._is_fist(landmarks):
-            self._current_gesture = "Fist (hold to switch mode)"
-            if self._fist_start_time is None:
-                self._fist_start_time = time.time()
-            elif not self._fist_triggered and time.time() - self._fist_start_time > 1.0:
-                self._fist_triggered = True
-                self._log_gesture("Mode switch (fist held)")
-                if self._toggle_callback:
-                    self._toggle_callback()
-            return
-        else:
-            self._fist_start_time = None
-            self._fist_triggered = False
-
-        if mode_manager.get_mode() != "GESTURE":
-            return  # in voice mode: only the fist toggle above should act
-
-        # Map index fingertip position to screen coordinates
-        x = int(
-            _map_range(index_tip[0], config.FRAME_MARGIN, w - config.FRAME_MARGIN, 0, screen_w)
-        )
-        y = int(
-            _map_range(index_tip[1], config.FRAME_MARGIN, h - config.FRAME_MARGIN, 0, screen_h)
-        )
+        x = _map_range(index_tip[0], config.FRAME_MARGIN, w - config.FRAME_MARGIN, 0, screen_w)
+        y = _map_range(index_tip[1], config.FRAME_MARGIN, h - config.FRAME_MARGIN, 0, screen_h)
         smooth_x = self._prev_x + (x - self._prev_x) / config.SMOOTHING_FACTOR
         smooth_y = self._prev_y + (y - self._prev_y) / config.SMOOTHING_FACTOR
         pyautogui.moveTo(smooth_x, smooth_y)
         self._prev_x, self._prev_y = smooth_x, smooth_y
 
-        self._current_gesture = "Cursor move"
-
-        # Pinch (thumb+index) = click, quick double pinch = double-click.
-        # Hysteresis (separate close/open thresholds) plus a cooldown stops
-        # landmark jitter near the threshold from firing repeated clicks.
-        pinch_dist = distance(thumb_tip, index_tip)
+        hand_size = distance(landmarks[0], landmarks[9]) or 1
+        pinch_ratio = distance(thumb_tip, index_tip) / hand_size
         now = time.time()
-        if pinch_dist < config.CLICK_DISTANCE_THRESHOLD:
+        if pinch_ratio < config.CLICK_CLOSE_RATIO:
             if not self._clicking and now - self._last_click_time > config.CLICK_COOLDOWN:
                 if now - self._last_click_time < 0.4:
                     pyautogui.doubleClick()
@@ -200,12 +199,11 @@ class GestureControl:
                     self._log_gesture("Click")
                 self._last_click_time = now
                 self._clicking = True
-        elif pinch_dist > config.CLICK_RELEASE_THRESHOLD:
+        elif pinch_ratio > config.CLICK_RELEASE_RATIO:
             self._clicking = False
 
-        # Thumb + middle pinch = scroll, direction from vertical hand movement
-        scroll_dist = distance(thumb_tip, middle_tip)
-        if scroll_dist < config.CLICK_DISTANCE_THRESHOLD:
+        scroll_ratio = distance(thumb_tip, middle_tip) / hand_size
+        if scroll_ratio < config.CLICK_CLOSE_RATIO:
             delta = self._prev_y - y
             if abs(delta) > 2:
                 pyautogui.scroll(int(delta / config.SCROLL_SENSITIVITY) * 10)

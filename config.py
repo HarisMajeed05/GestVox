@@ -26,9 +26,12 @@ HAND_DETECTION_CONFIDENCE = 0.6
 HAND_TRACKING_CONFIDENCE = 0.6
 MAX_NUM_HANDS = 1
 SMOOTHING_FACTOR = 5          # higher = smoother, slightly more lag
-CLICK_DISTANCE_THRESHOLD = 35   # pixels, pinch closes below this
-CLICK_RELEASE_THRESHOLD = 55    # pixels, pinch must open past this to re-arm
-CLICK_COOLDOWN = 0.3            # seconds, minimum gap between clicks
+# Pinch thresholds as a fraction of hand size (wrist-to-middle-knuckle
+# distance), so detection adapts to hand distance from the camera instead
+# of relying on fixed pixel values.
+CLICK_CLOSE_RATIO = 0.35   # pinch closes below this fraction of hand size
+CLICK_RELEASE_RATIO = 0.45 # pinch must open past this fraction to re-arm
+CLICK_COOLDOWN = 0.3       # seconds, minimum gap between clicks
 SCROLL_SENSITIVITY = 15
 FRAME_MARGIN = 100            # ignore edges of frame for stable cursor mapping
 
