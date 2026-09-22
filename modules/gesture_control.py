@@ -119,8 +119,7 @@ class GestureControl:
                 self._drawer.draw_landmarks(frame, hand, self._mp_hands.HAND_CONNECTIONS)
                 landmarks = [(int(lm.x * w), int(lm.y * h)) for lm in hand.landmark]
 
-                if mode_manager.get_mode() == "GESTURE":
-                    self._handle_gestures(landmarks, w, h)
+                self._handle_gestures(landmarks, w, h)
             else:
                 self._fist_start_time = None
                 self._fist_triggered = False
@@ -158,6 +157,9 @@ class GestureControl:
         else:
             self._fist_start_time = None
             self._fist_triggered = False
+
+        if mode_manager.get_mode() != "GESTURE":
+            return  # in voice mode: only the fist toggle above should act
 
         # Map index fingertip position to screen coordinates
         x = int(

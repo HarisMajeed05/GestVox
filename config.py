@@ -19,7 +19,7 @@ SWITCH_TO_GESTURE_PHRASES = ["switch to gesture", "gesture mode", "use gesture"]
 CAMERA_SOURCE = "local"       # "local" or "remote"
 CAM_INDEX = 0
 REMOTE_CAMERA_URL = "http://192.168.1.100:8080/video"  # set to laptop's stream URL
-FRAME_WIDTH = 640
+FRAME_WIDTH = 1240
 FRAME_HEIGHT = 360
 HAND_MODEL_COMPLEXITY = 1  # 0 = fastest/least accurate, 1 = balanced
 HAND_DETECTION_CONFIDENCE = 0.6
