@@ -5,13 +5,13 @@ load_dotenv()
 
 # API keys
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-GROQ_MODEL = "llama-3.3-70b-versatile"
+GROQ_MODEL = "openai/gpt-oss-120b"  # llama-3.3-70b-versatile was deprecated by Groq (Aug 2026)
 
 # Wake word settings
-WAKE_WORDS = ["hey vox", "hey gest", "hey gestvox"]
+WAKE_WORDS = ["hello", "hey", "hey gest", "hey vox", "hey gestvox"]
 SWITCH_TO_VOICE_PHRASES = ["switch to voice", "voice mode", "use voice"]
 SWITCH_TO_GESTURE_PHRASES = ["switch to gesture", "gesture mode", "use gesture"]
-
+ 
 # Gesture settings (tuned for accuracy + responsiveness)
 # CAMERA_SOURCE: "local" uses CAM_INDEX (webcam on this PC).
 # "remote" reads a network stream from another device (e.g. a laptop)
@@ -19,7 +19,7 @@ SWITCH_TO_GESTURE_PHRASES = ["switch to gesture", "gesture mode", "use gesture"]
 CAMERA_SOURCE = "local"       # "local" or "remote"
 CAM_INDEX = 0
 REMOTE_CAMERA_URL = "http://192.168.1.100:8080/video"  # set to laptop's stream URL
-FRAME_WIDTH = 1240
+FRAME_WIDTH = 640
 FRAME_HEIGHT = 360
 HAND_MODEL_COMPLEXITY = 1  # 0 = fastest/least accurate, 1 = balanced
 HAND_DETECTION_CONFIDENCE = 0.6
@@ -35,16 +35,19 @@ CLICK_COOLDOWN = 0.3       # seconds, minimum gap between clicks
 RIGHT_CLICK_COOLDOWN = 0.5
 SCROLL_SENSITIVITY = 15
 FRAME_MARGIN = 100            # ignore edges of frame for stable cursor mapping
-
+ 
 # Multi-user
 VOICE_LOGIN_ENABLED = True  # set False to skip login and use shared memory
-
+ 
 # Voice settings
-MIC_DEVICE_INDEX = None  # None = system default. Run list_mics.py to see options.
+MIC_DEVICE_INDEX = 2  # Headset (Wave ANC) earbuds
 MIC_ENERGY_THRESHOLD = 300
-MIC_PAUSE_THRESHOLD = 0.6
+STT_MODEL = "whisper-large-v3-turbo"
+MIC_PAUSE_THRESHOLD = 0.5
+END_SESSION_PHRASES = ["bye", "goodbye", "that's all", "stop listening"]
 TTS_RATE = 175
 TTS_VOLUME = 1.0
-
+ 
 # App
 APP_NAME = "GestVox"
+ 

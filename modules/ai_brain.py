@@ -195,6 +195,11 @@ class AIBrain:
         self._memory.add_turn("assistant", reply)
         return reply
 
+    def record_exchange(self, user_text, reply):
+        # Saves locally handled commands so follow-up questions have context
+        self._memory.add_turn("user", user_text)
+        self._memory.add_turn("assistant", reply)
+
     def reset(self):
         self._memory.clear()
 

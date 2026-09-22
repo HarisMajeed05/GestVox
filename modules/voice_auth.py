@@ -4,7 +4,8 @@ import numpy as np
 from resemblyzer import VoiceEncoder, preprocess_wav
 
 USERS_DIR = "users"
-MATCH_THRESHOLD = 0.75  # cosine similarity; raise for stricter matching
+MATCH_THRESHOLD = 0.65   # cosine similarity; raise for stricter matching
+UPDATE_WEIGHT = 0.2      # how much each successful login adapts the profile
 
 _encoder = None
 
@@ -23,15 +24,28 @@ def _user_dir(username):
     return path
 
 
+def _embedding_path(username):
+    return os.path.join(USERS_DIR, username, "voice_embedding.npy")
+
+
 def _embed_from_wav(wav_path):
     wav = preprocess_wav(wav_path)
     return _get_encoder().embed_utterance(wav)
 
 
-def enroll_user(username, wav_path):
-    embedding = _embed_from_wav(wav_path)
+def _normalize(vec):
+    return vec / (np.linalg.norm(vec) or 1)
+
+
+def enroll_user(username, wav_paths):
+    # Accepts one path or a list; averaging several samples gives a more
+    # stable profile, especially with low-quality Bluetooth mics.
+    if isinstance(wav_paths, str):
+        wav_paths = [wav_paths]
+    embeddings = [_embed_from_wav(p) for p in wav_paths]
+    embedding = _normalize(np.mean(embeddings, axis=0))
     path = _user_dir(username)
-    np.save(os.path.join(path, "voice_embedding.npy"), embedding)
+    np.save(_embedding_path(username), embedding)
     settings_path = os.path.join(path, "settings.json")
     if not os.path.exists(settings_path):
         with open(settings_path, "w", encoding="utf-8") as f:
@@ -39,12 +53,20 @@ def enroll_user(username, wav_path):
     return True
 
 
+def update_profile(username, wav_path):
+    # Blends a new sample into the stored profile so recognition improves over time
+    stored = np.load(_embedding_path(username))
+    sample = _embed_from_wav(wav_path)
+    updated = _normalize((1 - UPDATE_WEIGHT) * stored + UPDATE_WEIGHT * sample)
+    np.save(_embedding_path(username), updated)
+
+
 def list_users():
     if not os.path.exists(USERS_DIR):
         return []
     return [
         name for name in os.listdir(USERS_DIR)
-        if os.path.exists(os.path.join(USERS_DIR, name, "voice_embedding.npy"))
+        if os.path.exists(_embedding_path(name))
     ]
 
 
@@ -52,15 +74,14 @@ def identify_user(wav_path):
     # Returns (username, similarity) of the best match above threshold,
     # or (None, best_similarity) if nobody matches closely enough.
     try:
-        sample_embedding = _embed_from_wav(wav_path)
+        sample = _normalize(_embed_from_wav(wav_path))
     except Exception:
         return None, 0.0
 
     best_user, best_score = None, 0.0
     for username in list_users():
-        stored = np.load(os.path.join(USERS_DIR, username, "voice_embedding.npy"))
-        score = float(np.dot(sample_embedding, stored) /
-                       (np.linalg.norm(sample_embedding) * np.linalg.norm(stored)))
+        stored = _normalize(np.load(_embedding_path(username)))
+        score = float(np.dot(sample, stored))
         if score > best_score:
             best_user, best_score = username, score
 
