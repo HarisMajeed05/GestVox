@@ -76,6 +76,8 @@ class GestureControl:
         self._prev_x, self._prev_y = 0, 0
         self._clicking = False
         self._last_click_time = 0
+        self._right_clicking = False
+        self._last_right_click_time = 0
         self._current_gesture = "None"
 
         self._model = GestureModel(num_hands=config.MAX_NUM_HANDS)
@@ -87,6 +89,7 @@ class GestureControl:
             "Thumb_Up": ("Thumbs up -> volume up", lambda: sc.set_volume("up")),
             "Thumb_Down": ("Thumbs down -> volume down", lambda: sc.set_volume("down")),
             "Victory": ("Victory -> screenshot", sc.take_screenshot),
+            "ILoveYou": ("I love you -> lock PC", sc.lock_pc),
         }
         self._gesture_hold_start = None
         self._last_builtin_name = None
@@ -185,7 +188,10 @@ class GestureControl:
         cooldown_passed = now - self._last_builtin_time >= BUILTIN_GESTURE_COOLDOWN
         if held_long_enough and cooldown_passed and action:
             self._log_gesture(label)
-            action()
+            try:
+                action()
+            except Exception as e:
+                print(f"[Gesture] Action '{label}' failed: {e}")
             self._last_builtin_time = now
             self._gesture_hold_start = now  # require re-hold before firing again
 
@@ -220,6 +226,18 @@ class GestureControl:
                 self._clicking = True
         elif pinch_ratio > config.CLICK_RELEASE_RATIO:
             self._clicking = False
+
+        pinky_tip = landmarks[20]
+        right_click_ratio = distance(thumb_tip, pinky_tip) / hand_size
+        if right_click_ratio < config.CLICK_CLOSE_RATIO:
+            if not self._right_clicking and now - self._last_right_click_time > config.RIGHT_CLICK_COOLDOWN:
+                pyautogui.click(button="right")
+                self._current_gesture = "Right-click"
+                self._log_gesture("Right-click")
+                self._last_right_click_time = now
+                self._right_clicking = True
+        elif right_click_ratio > config.CLICK_RELEASE_RATIO:
+            self._right_clicking = False
 
         scroll_ratio = distance(thumb_tip, middle_tip) / hand_size
         if scroll_ratio < config.CLICK_CLOSE_RATIO:

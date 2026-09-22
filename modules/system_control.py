@@ -96,7 +96,10 @@ def get_time():
 
 
 def take_screenshot():
-    path = os.path.join(os.path.expanduser("~"), "Pictures", "gestvox_screenshot.png")
+    folder = os.path.join(os.path.expanduser("~"), "Pictures", "GestVox")
+    os.makedirs(folder, exist_ok=True)
+    filename = f"screenshot_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+    path = os.path.join(folder, filename)
     pyautogui.screenshot().save(path)
     return f"Screenshot saved to {path}."
 

@@ -32,6 +32,7 @@ SMOOTHING_FACTOR = 3          # higher = smoother, slightly more lag
 CLICK_CLOSE_RATIO = 0.35   # pinch closes below this fraction of hand size
 CLICK_RELEASE_RATIO = 0.45 # pinch must open past this fraction to re-arm
 CLICK_COOLDOWN = 0.3       # seconds, minimum gap between clicks
+RIGHT_CLICK_COOLDOWN = 0.5
 SCROLL_SENSITIVITY = 15
 FRAME_MARGIN = 100            # ignore edges of frame for stable cursor mapping
 
