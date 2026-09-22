@@ -183,11 +183,13 @@ class GestureControl:
 
         self._current_gesture = "Cursor move"
 
-        # Pinch (thumb+index) = click, quick double pinch = double-click
+        # Pinch (thumb+index) = click, quick double pinch = double-click.
+        # Hysteresis (separate close/open thresholds) plus a cooldown stops
+        # landmark jitter near the threshold from firing repeated clicks.
         pinch_dist = distance(thumb_tip, index_tip)
+        now = time.time()
         if pinch_dist < config.CLICK_DISTANCE_THRESHOLD:
-            if not self._clicking:
-                now = time.time()
+            if not self._clicking and now - self._last_click_time > config.CLICK_COOLDOWN:
                 if now - self._last_click_time < 0.4:
                     pyautogui.doubleClick()
                     self._current_gesture = "Double-click"
@@ -198,7 +200,7 @@ class GestureControl:
                     self._log_gesture("Click")
                 self._last_click_time = now
                 self._clicking = True
-        else:
+        elif pinch_dist > config.CLICK_RELEASE_THRESHOLD:
             self._clicking = False
 
         # Thumb + middle pinch = scroll, direction from vertical hand movement
