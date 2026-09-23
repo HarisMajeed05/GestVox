@@ -21,6 +21,8 @@ class TTSEngine:
     def __init__(self):
         self._queue = queue.Queue()
         self._ready = threading.Event()
+        self._speaking = threading.Event()
+        self._engine = None
         self._thread = threading.Thread(target=self._worker, daemon=True)
         self._thread.start()
         self._ready.wait(timeout=10)
@@ -34,10 +36,12 @@ class TTSEngine:
         engine = pyttsx3.init()
         engine.setProperty("rate", config.TTS_RATE)
         engine.setProperty("volume", config.TTS_VOLUME)
+        self._engine = engine
         self._ready.set()
 
         while True:
             text, done = self._queue.get()
+            self._speaking.set()
             try:
                 engine.say(text)
                 engine.runAndWait()
@@ -45,6 +49,8 @@ class TTSEngine:
                 print(f"[TTS] Speech failed: {e}")
             finally:
                 done.set()
+                if self._queue.empty():
+                    self._speaking.clear()
 
     def speak(self, text):
         # Blocks until the text has been spoken
@@ -58,7 +64,26 @@ class TTSEngine:
     def speak_async(self, text):
         text = _clean_for_speech(text or "")
         if text:
+            self._speaking.set()
             self._queue.put((text, threading.Event()))
+
+    def is_speaking(self):
+        return self._speaking.is_set()
+
+    def stop_speaking(self):
+        # Drops anything queued and cuts off the sentence being spoken
+        while not self._queue.empty():
+            try:
+                _, done = self._queue.get_nowait()
+                done.set()
+            except queue.Empty:
+                break
+        try:
+            if self._engine:
+                self._engine.stop()
+        except Exception:
+            pass
+        self._speaking.clear()
 
 
 tts_engine = TTSEngine()

@@ -31,6 +31,20 @@ BASE_SYSTEM_PROMPT = (
 )
 
 MAX_TOOL_ROUNDS = 5
+SENTENCE_END = re.compile(r"(.+?[.!?])(\s|$)", re.S)
+
+
+def _split_sentences(buffer):
+    """Pulls complete sentences off the front of a growing text buffer so
+    they can be spoken while the rest is still being generated."""
+    sentences = []
+    while True:
+        match = SENTENCE_END.match(buffer)
+        if not match:
+            break
+        sentences.append(match.group(1).strip())
+        buffer = buffer[match.end():]
+    return sentences, buffer
 
 
 def _tool(name, description, properties=None, required=None):
@@ -112,6 +126,19 @@ FUNCTION_MAP = {
 }
 
 
+class _ToolFunction:
+    def __init__(self, name, arguments):
+        self.name = name
+        self.arguments = arguments
+
+
+class _ToolCall:
+    # Matches the shape of a non-streamed tool call, so both paths share code
+    def __init__(self, call_id, name, arguments):
+        self.id = call_id
+        self.function = _ToolFunction(name, arguments)
+
+
 class AIBrain:
     def __init__(self):
         self._client = Groq(api_key=config.GROQ_API_KEY)
@@ -143,7 +170,7 @@ class AIBrain:
             return reply_part, None
         return reply_part, fact_part
 
-    def _complete(self, messages):
+    def _complete(self, messages, stream=False):
         # reasoning_effort goes through extra_body so it works on any SDK version.
         # Tools are passed on every round, since gpt-oss errors if it tries to
         # call a tool on a request that has none.
@@ -154,6 +181,7 @@ class AIBrain:
             tool_choice="auto",
             temperature=0.5,
             max_tokens=1024,
+            stream=stream,
             extra_body={"reasoning_effort": config.GROQ_REASONING_EFFORT,
                         "include_reasoning": False},
         )
@@ -176,36 +204,82 @@ class AIBrain:
                             "name": name, "content": str(output)})
         return results
 
-    def ask(self, user_text):
+    def _stream_round(self, messages, on_sentence):
+        """Streams one reply, speaking each finished sentence as it arrives.
+        Returns (text, tool_calls, spoken_chars)."""
+        content, buffer, spoken = "", "", 0
+        calls = {}
+        for chunk in self._complete(messages, stream=True):
+            delta = chunk.choices[0].delta
+            if getattr(delta, "tool_calls", None):
+                for tc in delta.tool_calls:
+                    entry = calls.setdefault(tc.index, {"id": "", "name": "", "args": ""})
+                    if tc.id:
+                        entry["id"] = tc.id
+                    if tc.function and tc.function.name:
+                        entry["name"] = tc.function.name
+                    if tc.function and tc.function.arguments:
+                        entry["args"] += tc.function.arguments
+            if not delta.content:
+                continue
+            content += delta.content
+            buffer += delta.content
+            # The trailing FACT line is internal, so nothing is spoken once it starts
+            if re.search(r"fact\s*:", buffer, re.I):
+                continue
+            sentences, buffer = _split_sentences(buffer)
+            for sentence in sentences:
+                on_sentence(sentence)
+                spoken += len(sentence)
+        return content, calls, spoken
+
+    def ask(self, user_text, on_sentence=None):
         messages = [{"role": "system", "content": self._build_system_prompt()}]
         messages.extend(self._memory.get_history())
         messages.append({"role": "user", "content": user_text})
 
-        raw_reply = ""
+        raw_reply, spoken_chars = "", 0
         try:
             for _ in range(MAX_TOOL_ROUNDS):
-                msg = self._complete(messages).choices[0].message
-                if not msg.tool_calls:
+                if on_sentence:
+                    raw_reply, calls, spoken_chars = self._stream_round(messages, on_sentence)
+                    tool_calls = [
+                        _ToolCall(c["id"], c["name"], c["args"])
+                        for c in calls.values() if c["name"]
+                    ]
+                else:
+                    msg = self._complete(messages).choices[0].message
                     raw_reply = (msg.content or "").strip()
+                    tool_calls = msg.tool_calls or []
+
+                if not tool_calls:
                     break
                 messages.append({
                     "role": "assistant",
-                    "content": msg.content or "",
+                    "content": raw_reply,
                     "tool_calls": [
                         {"id": c.id, "type": "function",
                          "function": {"name": c.function.name,
                                       "arguments": c.function.arguments or "{}"}}
-                        for c in msg.tool_calls
+                        for c in tool_calls
                     ],
                 })
-                messages.extend(self._run_tool_calls(msg.tool_calls))
+                messages.extend(self._run_tool_calls(tool_calls))
         except Exception as e:
             print(f"[AI] Request failed: {e}")
-            return "Sorry, I couldn't reach the AI service."
+            message = "Sorry, I couldn't reach the AI service."
+            if on_sentence:
+                on_sentence(message)
+            return message
 
         reply, fact = self._parse_reply(raw_reply)
         if not reply:
             reply = "Done."
+        # Speaks whatever was left over after the last complete sentence
+        if on_sentence:
+            remainder = reply[spoken_chars:].strip() if spoken_chars else reply
+            if remainder:
+                on_sentence(remainder)
         if fact:
             self._memory.add_fact(fact)
 

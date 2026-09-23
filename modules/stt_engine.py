@@ -21,6 +21,31 @@ class SttEngine:
         self._client = Groq(api_key=config.GROQ_API_KEY)
         self._vad = webrtcvad.Vad(config.VAD_AGGRESSIVENESS)
         self._prompt = None
+        self._local_model = None
+
+    def _get_local_model(self):
+        # Loaded on first use; the model downloads once (~150MB for base.en)
+        if self._local_model is None:
+            from faster_whisper import WhisperModel
+            print(f"[STT] Loading local model {config.STT_LOCAL_MODEL}...")
+            self._local_model = WhisperModel(
+                config.STT_LOCAL_MODEL, device="cpu", compute_type="int8",
+            )
+            print("[STT] Local model ready.")
+        return self._local_model
+
+    def _transcribe_local(self, wav_bytes):
+        import io
+        model = self._get_local_model()
+        segments, _ = model.transcribe(
+            io.BytesIO(wav_bytes),
+            language="en",
+            beam_size=1,              # greedy decoding is much faster
+            vad_filter=True,
+            condition_on_previous_text=False,
+            initial_prompt=self._get_prompt(),
+        )
+        return " ".join(seg.text.strip() for seg in segments)
 
     def _get_prompt(self):
         # Adds installed app names so Whisper spells them correctly.
@@ -52,6 +77,17 @@ class SttEngine:
             return ""
 
         wav_bytes = audio_data.get_wav_data(convert_rate=VAD_RATE, convert_width=2)
+
+        # Local transcription avoids a network round trip, which is the
+        # biggest single delay in a spoken conversation
+        if config.STT_BACKEND == "local":
+            try:
+                text = self._transcribe_local(wav_bytes)
+            except Exception as e:
+                print(f"[STT] Local transcription failed, using Groq: {e}")
+            else:
+                return self._clean(text)
+
         model = config.STT_MODEL_ACCURATE if accurate else config.STT_MODEL_FAST
         try:
             result = self._client.audio.transcriptions.create(
@@ -78,7 +114,11 @@ class SttEngine:
         else:
             text = data.get("text", "")
 
-        text = text.strip().lower()
+        return self._clean(text)
+
+    @staticmethod
+    def _clean(text):
+        text = (text or "").strip().lower()
         check = re.sub(r"[^\w\s]", "", text).strip()
         if check in HALLUCINATIONS:
             return ""

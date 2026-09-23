@@ -61,7 +61,11 @@ class VoiceControl:
             print("[Voice] Session ended (left voice mode).")
 
     def _say(self, text):
-        # Blocking speech so the mic doesn't record the assistant's own voice
+        # With barge-in on, speech runs in the background so listening can
+        # continue and the user can interrupt mid-sentence
+        if config.BARGE_IN:
+            tts_engine.speak_async(text)
+            return
         tts_engine.speak(text)
         if self._session_active and config.LISTEN_BEEP:
             winsound.Beep(1000, 70)  # signals that listening has resumed
@@ -100,6 +104,9 @@ class VoiceControl:
         raw = self._listen_once(source, timeout=5, accurate=self._session_active)
         if not raw:
             return
+        if tts_engine.is_speaking():
+            print("[Voice] Interrupted.")
+            tts_engine.stop_speaking()
         text = command_router.normalize(raw)
         self._route(text)
 
@@ -162,7 +169,16 @@ class VoiceControl:
             self._say(fast_result)
             return
 
+        # Sentences are spoken as they are generated instead of waiting
+        # for the whole reply
         start = time.time()
-        reply = ai_brain.ask(command)
+        first = [True]
+
+        def on_sentence(sentence):
+            if first[0]:
+                print(f"[Voice] First speech after {time.time() - start:.2f}s")
+                first[0] = False
+            tts_engine.speak_async(sentence)
+
+        reply = ai_brain.ask(command, on_sentence=on_sentence)
         print(f"[Voice] AI reply ({time.time() - start:.2f}s): {reply}")
-        self._say(reply)
