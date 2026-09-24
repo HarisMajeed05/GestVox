@@ -60,13 +60,14 @@ class VoiceControl:
             self._session_active = False
             print("[Voice] Session ended (left voice mode).")
 
-    def _say(self, text):
+    def _say(self, text, lang=None):
         # With barge-in on, speech runs in the background so listening can
         # continue and the user can interrupt mid-sentence
+        lang = lang or stt_engine.last_language
         if config.BARGE_IN:
-            tts_engine.speak_async(text)
+            tts_engine.speak_async(text, lang)
             return
-        tts_engine.speak(text)
+        tts_engine.speak(text, lang)
         if self._session_active and config.LISTEN_BEEP:
             winsound.Beep(1000, 70)  # signals that listening has resumed
 
@@ -82,7 +83,8 @@ class VoiceControl:
         start = time.time()
         text = stt_engine.transcribe(audio, accurate=accurate)
         if text:
-            print(f"[Voice] Heard: \"{text}\" ({time.time() - start:.2f}s)")
+            print(f"[Voice] Heard [{stt_engine.last_language}]: \"{text}\" "
+                  f"({time.time() - start:.2f}s)")
         return text
 
     def _run(self):
@@ -174,11 +176,13 @@ class VoiceControl:
         start = time.time()
         first = [True]
 
+        lang = stt_engine.last_language
+
         def on_sentence(sentence):
             if first[0]:
                 print(f"[Voice] First speech after {time.time() - start:.2f}s")
                 first[0] = False
-            tts_engine.speak_async(sentence)
+            tts_engine.speak_async(sentence, lang)
 
         reply = ai_brain.ask(command, on_sentence=on_sentence)
         print(f"[Voice] AI reply ({time.time() - start:.2f}s): {reply}")

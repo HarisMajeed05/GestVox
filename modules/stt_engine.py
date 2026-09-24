@@ -22,6 +22,7 @@ class SttEngine:
         self._vad = webrtcvad.Vad(config.VAD_AGGRESSIVENESS)
         self._prompt = None
         self._local_model = None
+        self.last_language = "en"  # language of the most recent transcription
 
     def _get_local_model(self):
         # Loaded on first use; the model downloads once (~150MB for base.en)
@@ -37,15 +38,26 @@ class SttEngine:
     def _transcribe_local(self, wav_bytes):
         import io
         model = self._get_local_model()
-        segments, _ = model.transcribe(
+        segments, info = model.transcribe(
             io.BytesIO(wav_bytes),
-            language="en",
+            language=self._language_arg(),
             beam_size=1,              # greedy decoding is much faster
             vad_filter=True,
             condition_on_previous_text=False,
             initial_prompt=self._get_prompt(),
         )
-        return " ".join(seg.text.strip() for seg in segments)
+        text = " ".join(seg.text.strip() for seg in segments)
+        self._set_language(getattr(info, "language", "en"))
+        return text
+
+    def _language_arg(self):
+        # None lets Whisper detect the language per utterance, which is what
+        # makes mixed Urdu-English speech work
+        return None if config.MULTILINGUAL else "en"
+
+    def _set_language(self, detected):
+        code = (detected or "en").lower()[:2]
+        self.last_language = code if code in config.LANGUAGES else "en"
 
     def _get_prompt(self):
         # Adds installed app names so Whisper spells them correctly.
@@ -59,7 +71,9 @@ class SttEngine:
                 pass
             apps = ", ".join(n.title() for n in names)
             self._prompt = (BASE_PROMPT + (f" Apps: {apps}." if apps else ""))[:800]
-        return self._prompt
+        # An English prompt biases language detection, so it is skipped
+        # when more than one language is expected
+        return None if config.MULTILINGUAL else self._prompt
 
     def _speech_ratio(self, raw):
         frames = [raw[i:i + VAD_FRAME_BYTES]
@@ -94,7 +108,7 @@ class SttEngine:
                 file=("audio.wav", wav_bytes),
                 model=model,
                 response_format="verbose_json",
-                language="en",
+                language=self._language_arg(),
                 temperature=0.0,
                 prompt=self._get_prompt(),
             )
@@ -103,6 +117,7 @@ class SttEngine:
             return ""
 
         data = result.model_dump() if hasattr(result, "model_dump") else dict(result)
+        self._set_language(data.get("language", "en"))
         segments = data.get("segments") or []
         if segments:
             # Drops segments Whisper itself marks as likely silence

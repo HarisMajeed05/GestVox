@@ -20,7 +20,9 @@ def _record_sample(recognizer, mic, seconds=4):
 
 
 def _extract_name(text):
-    match = re.search(r"(?:name is|i am|i'm|call me)\s+([a-z]+)", text.lower())
+    # Handles English and Roman Urdu ways of giving a name
+    match = re.search(
+        r"(?:name is|naam hai|naam|i am|i'm|call me|mujhe)\s+([a-z]+)", text.lower())
     return match.group(1) if match else None
 
 

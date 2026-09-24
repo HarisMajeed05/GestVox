@@ -9,23 +9,45 @@ Hands-free control for Windows. Move your mouse, click, and scroll with hand ges
 | Gesture | Action |
 | --- | --- |
 | Move index finger | Move cursor |
-| Pinch thumb + index | Click (quick double pinch = double-click) |
+| Pinch thumb + index (quick) | Click (pinch twice = double-click) |
+| Pinch thumb + index (hold) | Drag and drop |
 | Pinch thumb + pinky | Right-click |
-| Pinch thumb + middle, move hand up/down | Scroll |
+| Pinch thumb + middle, move up/down | Scroll vertically |
+| Pinch thumb + ring, move left/right | Scroll horizontally |
+| Pinch both hands, move apart/together | Zoom in / out |
+| Swipe open palm left / right | Browser back / forward |
+| Swipe open palm up / down | Switch window / show desktop |
 | Closed fist (hold ~1s) | Switch between gesture and voice mode (works in both modes) |
 | Open palm (hold still ~1s) | Play/pause media |
 | Thumbs up | Volume up |
 | Thumbs down | Volume down |
-| Victory ✌ | Screenshot |
-| I love you 🤟 (hold ~1.5s) | Lock PC |
+| Victory | Screenshot |
+| I love you (hold ~1.5s) | Lock PC |
+
+**Languages**
+
+- Understands English, Urdu, Punjabi, and Urdu mixed with English, detected automatically per sentence
+- Wake words and commands work in any of them ("hey vox", "سنو ووکس", "chrome kholo", "آواز بڑھاؤ")
+- Replies are spoken back in the same language, using neural voices
+- Punjabi has no neural voice available, so Punjabi replies use the Urdu voice
 
 **Voice assistant**
 
 - Wake word starts a session ("hey vox"), it keeps listening until you say "bye"
-- Speech to text with Groq Whisper (large-v3 for commands, turbo while idle), with voice activity detection to skip noise
-- Full conversational AI (Groq/Llama) for questions and chat
+- Speech to text through Groq Whisper (best for Urdu and Punjabi), or locally with faster-whisper for no network delay and offline use
+- Replies stream sentence by sentence, so it starts speaking before the full answer is ready, and you can interrupt it mid-sentence
+- Full conversational AI (Groq) for questions and chat
 - Persistent memory: remembers facts about you across restarts, and keeps learning from every conversation (corrections included)
-- System control by voice: open/close apps, volume, media, lock/shutdown/restart, battery, time, screenshot, open websites, web search
+- Full PC control by voice, either through built-in commands or PowerShell for anything else:
+  - Apps and windows: open/close apps, minimize, maximize, snap, switch window, show desktop, tabs
+  - Media and audio: volume, mute, play/pause, next/previous track
+  - System: lock, sleep, sign out, shutdown, restart, brightness, dark/light mode, Wi-Fi, Bluetooth
+  - Info: battery, time, weather (live), CPU/memory, disk space, IP address
+  - Editing shortcuts: copy, paste, cut, undo, redo, select all, save, find, print, zoom
+  - Browsing: open known sites, web search, YouTube search, back/forward, refresh
+  - Productivity: timers, notes, clipboard read/write, dictation, file search, screenshots
+  - Anything else: the assistant writes and runs a PowerShell command
+- Destructive actions (deleting files, shutdown, Wi-Fi off) ask for spoken confirmation first
 
 **Multi-user**
 

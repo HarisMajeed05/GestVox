@@ -380,3 +380,189 @@ def get_weather(city=""):
             return resp.read().decode("utf-8").strip()
     except Exception as e:
         return f"Couldn't get the weather: {e}"
+
+
+# ---------------------------------------------------------------------------
+# Shortcuts, sites, timers, notes and system info
+# ---------------------------------------------------------------------------
+
+HOTKEY_ACTIONS = {
+    "copy": (("ctrl", "c"), "Copied."),
+    "paste": (("ctrl", "v"), "Pasted."),
+    "cut": (("ctrl", "x"), "Cut."),
+    "undo": (("ctrl", "z"), "Undone."),
+    "redo": (("ctrl", "y"), "Redone."),
+    "select_all": (("ctrl", "a"), "Selected everything."),
+    "save": (("ctrl", "s"), "Saved."),
+    "find": (("ctrl", "f"), "Opened find."),
+    "print": (("ctrl", "p"), "Opened print."),
+    "refresh": (("f5",), "Refreshed."),
+    "back": (("alt", "left"), "Went back."),
+    "forward": (("alt", "right"), "Went forward."),
+    "zoom_in": (("ctrl", "+"), "Zoomed in."),
+    "zoom_out": (("ctrl", "-"), "Zoomed out."),
+    "zoom_reset": (("ctrl", "0"), "Reset zoom."),
+    "new_window": (("ctrl", "n"), "Opened a new window."),
+    "reopen_tab": (("ctrl", "shift", "t"), "Reopened the last tab."),
+    "next_tab": (("ctrl", "tab"), "Switched tab."),
+    "enter": (("enter",), "Pressed enter."),
+    "escape": (("esc",), "Pressed escape."),
+    "delete": (("delete",), "Deleted."),
+}
+
+SITES = {
+    "youtube": "https://youtube.com",
+    "gmail": "https://mail.google.com",
+    "google": "https://google.com",
+    "github": "https://github.com",
+    "chatgpt": "https://chat.openai.com",
+    "whatsapp": "https://web.whatsapp.com",
+    "linkedin": "https://linkedin.com",
+    "netflix": "https://netflix.com",
+    "amazon": "https://amazon.com",
+    "reddit": "https://reddit.com",
+    "maps": "https://maps.google.com",
+    "drive": "https://drive.google.com",
+    "chatgpt.com": "https://chat.openai.com",
+}
+
+NOTES_FILE = os.path.join(os.path.expanduser("~"), "Documents", "GestVox_notes.txt")
+
+
+def hotkey_action(action):
+    entry = HOTKEY_ACTIONS.get(action)
+    if not entry:
+        return f"Unknown action: {action}."
+    keys, message = entry
+    pyautogui.hotkey(*keys)
+    return message
+
+
+def open_site(name):
+    name = name.lower().strip(" .?!,")
+    url = SITES.get(name)
+    if url:
+        webbrowser.open(url)
+        return f"Opened {name}."
+    return open_website(name)
+
+
+def youtube_search(query):
+    import urllib.parse
+    query = query.strip(" .?!,")
+    webbrowser.open(f"https://www.youtube.com/results?search_query={urllib.parse.quote(query)}")
+    return f"Searching YouTube for {query}."
+
+
+def set_timer(minutes, label=""):
+    import threading
+
+    def fire():
+        from modules.tts_engine import tts_engine
+        message = f"Timer finished: {label}" if label else "Your timer is done."
+        tts_engine.speak_async(message)
+        print(f"[Timer] {message}")
+
+    try:
+        minutes = float(minutes)
+    except (TypeError, ValueError):
+        return "I need a number of minutes."
+    threading.Timer(minutes * 60, fire).start()
+    return f"Timer set for {minutes:g} minutes."
+
+
+def take_note(text):
+    os.makedirs(os.path.dirname(NOTES_FILE), exist_ok=True)
+    stamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+    with open(NOTES_FILE, "a", encoding="utf-8") as f:
+        f.write(f"[{stamp}] {text}\n")
+    return "Note saved."
+
+
+def read_notes(count=5):
+    if not os.path.exists(NOTES_FILE):
+        return "You don't have any notes yet."
+    with open(NOTES_FILE, "r", encoding="utf-8") as f:
+        lines = [l.strip() for l in f if l.strip()]
+    if not lines:
+        return "You don't have any notes yet."
+    recent = lines[-int(count):]
+    return "Your latest notes: " + " ... ".join(recent)
+
+
+def system_info():
+    cpu = psutil.cpu_percent(interval=0.5)
+    mem = psutil.virtual_memory()
+    return (f"CPU is at {cpu:.0f} percent, memory at {mem.percent:.0f} percent, "
+            f"{mem.available / 1e9:.1f} gigabytes free.")
+
+
+def disk_space(drive="C:"):
+    usage = psutil.disk_usage(drive + "\\")
+    return (f"Drive {drive} has {usage.free / 1e9:.0f} gigabytes free "
+            f"out of {usage.total / 1e9:.0f}.")
+
+
+def get_ip():
+    out = _execute_powershell(
+        "(Invoke-WebRequest -Uri 'https://api.ipify.org' -UseBasicParsing).Content")
+    local, _ = _powershell(
+        "(Get-NetIPAddress -AddressFamily IPv4 | Where-Object {$_.PrefixOrigin -ne 'WellKnown'} "
+        "| Select-Object -First 1).IPAddress")
+    return f"Public IP {out}, local IP {local}."
+
+
+def set_brightness(level):
+    # Works on laptop displays; external monitors usually don't support this
+    try:
+        level = max(0, min(100, int(level)))
+    except (TypeError, ValueError):
+        return "I need a brightness level between 0 and 100."
+    out = _execute_powershell(
+        f"(Get-WmiObject -Namespace root/WMI -Class WmiMonitorBrightnessMethods)"
+        f".WmiSetBrightness(1,{level})")
+    if "Exception" in out or "error" in out.lower():
+        return "This display doesn't support brightness control."
+    return f"Brightness set to {level} percent."
+
+
+def toggle_dark_mode(mode="dark"):
+    value = 0 if mode.lower() == "dark" else 1
+    key = "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize"
+    _execute_powershell(
+        f"Set-ItemProperty -Path '{key}' -Name AppsUseLightTheme -Value {value}; "
+        f"Set-ItemProperty -Path '{key}' -Name SystemUsesLightTheme -Value {value}")
+    return f"Switched to {mode.lower()} mode."
+
+
+def sleep_pc():
+    return request_confirmation(
+        "put the PC to sleep",
+        lambda: _execute_powershell(
+            "Add-Type -AssemblyName System.Windows.Forms; "
+            "[System.Windows.Forms.Application]::SetSuspendState('Suspend',$false,$false)")
+        or "Going to sleep.")
+
+
+def log_off():
+    return request_confirmation("sign you out of Windows",
+                                lambda: _execute_powershell("shutdown /l") or "Signing out.")
+
+
+def empty_recycle_bin():
+    return request_confirmation(
+        "empty the recycle bin",
+        lambda: _execute_powershell("Clear-RecycleBin -Force -ErrorAction SilentlyContinue")
+        or "Recycle bin emptied.")
+
+
+def find_file(name):
+    out = _execute_powershell(
+        f"Get-ChildItem -Path $env:USERPROFILE -Filter '*{name}*' -Recurse "
+        f"-ErrorAction SilentlyContinue | Select-Object -First 5 -ExpandProperty FullName")
+    return out if out and "Done, no output" not in out else f"No file matching {name} was found."
+
+
+def open_settings_page(page=""):
+    subprocess.Popen(["cmd", "/c", "start", "", f"ms-settings:{page}"], shell=False)
+    return "Opened settings."

@@ -9,7 +9,11 @@ from modules import auth_flow
 
 BASE_SYSTEM_PROMPT = (
     "You are GestVox, a personal voice assistant running on the user's "
-    "Windows PC, similar to Jarvis. Your replies are spoken aloud, so keep "
+    "Windows PC, similar to Jarvis. Always reply in the same language the "
+    "user spoke: English, Urdu, or Punjabi. If they mix Urdu and English, "
+    "reply the same mixed way. Write Urdu and Punjabi in their own script, "
+    "not in Roman letters, so they can be spoken correctly. "
+    "Your replies are spoken aloud, so keep "
     "them short (1-3 sentences), plain text, no markdown, no lists, no "
     "emojis, unless the user asks for detail. Use the available tools "
     "whenever the user asks you to control the PC. You have full access to "
@@ -95,6 +99,31 @@ TOOLS = [
     _tool("get_clipboard", "Read the clipboard text."),
     _tool("set_clipboard", "Copy text to the clipboard.",
           {"text": {"type": "string"}}, ["text"]),
+    _tool("hotkey_action", "Run a common shortcut action.",
+          {"action": {"type": "string", "enum": list(sc.HOTKEY_ACTIONS.keys())}}, ["action"]),
+    _tool("open_site", "Open a known website by name (youtube, gmail, github, etc.) or a URL.",
+          {"name": {"type": "string"}}, ["name"]),
+    _tool("youtube_search", "Search or play something on YouTube.",
+          {"query": {"type": "string"}}, ["query"]),
+    _tool("set_timer", "Set a timer that announces itself when done.",
+          {"minutes": {"type": "number"}, "label": {"type": "string"}}, ["minutes"]),
+    _tool("take_note", "Save a note for the user.", {"text": {"type": "string"}}, ["text"]),
+    _tool("read_notes", "Read back the user's most recent notes.",
+          {"count": {"type": "integer"}}),
+    _tool("system_info", "Get CPU and memory usage."),
+    _tool("disk_space", "Get free disk space.", {"drive": {"type": "string"}}),
+    _tool("get_ip", "Get the public and local IP address."),
+    _tool("set_brightness", "Set screen brightness, 0 to 100.",
+          {"level": {"type": "integer"}}, ["level"]),
+    _tool("toggle_dark_mode", "Switch Windows between dark and light mode.",
+          {"mode": {"type": "string", "enum": ["dark", "light"]}}, ["mode"]),
+    _tool("sleep_pc", "Put the PC to sleep."),
+    _tool("log_off", "Sign out of Windows."),
+    _tool("empty_recycle_bin", "Empty the recycle bin."),
+    _tool("find_file", "Find files by name in the user's folders.",
+          {"name": {"type": "string"}}, ["name"]),
+    _tool("open_settings_page", "Open Windows Settings, optionally a specific page "
+          "like 'bluetooth', 'display', 'network'.", {"page": {"type": "string"}}),
     _tool("create_voice_profile", "Register a new user's voice profile for login.",
           {"username": {"type": "string"}}, ["username"]),
 ]
@@ -122,6 +151,22 @@ FUNCTION_MAP = {
     "type_text": lambda a: sc.type_text(a["text"]),
     "get_clipboard": lambda a: sc.get_clipboard(),
     "set_clipboard": lambda a: sc.set_clipboard(a["text"]),
+    "hotkey_action": lambda a: sc.hotkey_action(a["action"]),
+    "open_site": lambda a: sc.open_site(a["name"]),
+    "youtube_search": lambda a: sc.youtube_search(a["query"]),
+    "set_timer": lambda a: sc.set_timer(a["minutes"], a.get("label", "")),
+    "take_note": lambda a: sc.take_note(a["text"]),
+    "read_notes": lambda a: sc.read_notes(a.get("count", 5)),
+    "system_info": lambda a: sc.system_info(),
+    "disk_space": lambda a: sc.disk_space(a.get("drive", "C:")),
+    "get_ip": lambda a: sc.get_ip(),
+    "set_brightness": lambda a: sc.set_brightness(a["level"]),
+    "toggle_dark_mode": lambda a: sc.toggle_dark_mode(a["mode"]),
+    "sleep_pc": lambda a: sc.sleep_pc(),
+    "log_off": lambda a: sc.log_off(),
+    "empty_recycle_bin": lambda a: sc.empty_recycle_bin(),
+    "find_file": lambda a: sc.find_file(a["name"]),
+    "open_settings_page": lambda a: sc.open_settings_page(a.get("page", "")),
     "create_voice_profile": lambda a: auth_flow.enroll_new_user(a["username"]),
 }
 
