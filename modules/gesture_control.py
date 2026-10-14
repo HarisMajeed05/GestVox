@@ -5,27 +5,50 @@ import threading
 import pyautogui
 import config
 from modules.mode_manager import mode_manager
-from modules.gesture_model import GestureModel
+from modules.gesture_model import create_gesture_model
 from modules import system_control as sc
 
 pyautogui.FAILSAFE = False
 pyautogui.PAUSE = 0  # default 0.1s pause after every call causes cursor lag
 screen_w, screen_h = pyautogui.size()
 
-BUILTIN_COOLDOWN = 1.2        # seconds before the same gesture can fire again
-STILL_RATIO = 0.25            # hand must move less than this (x hand size) while holding
+BUILTIN_COOLDOWN = 1.2  # seconds before the same gesture can fire again
+STILL_RATIO = 0.25  # hand must move less than this (x hand size) while holding
 
 # Gestures that fold the index finger or put the thumb near other fingers.
 # While one is detected, cursor and pinch actions pause to avoid accidental clicks.
 POINTER_BLOCKING = {"Closed_Fist", "Thumb_Up", "Thumb_Down", "Victory", "ILoveYou"}
 
+# Fast open-palm movements, checked before the hold-to-trigger gestures
+SWIPE_ACTIONS = {
+    "left": ("Swipe left -> back", lambda: sc.hotkey_action("back")),
+    "right": ("Swipe right -> forward", lambda: sc.hotkey_action("forward")),
+    "up": ("Swipe up -> switch window", lambda: sc.window_action("switch_window")),
+    "down": ("Swipe down -> show desktop", lambda: sc.window_action("show_desktop")),
+}
+
 # Standard MediaPipe hand landmark connections, for drawing the skeleton
 HAND_CONNECTIONS = [
-    (0, 1), (1, 2), (2, 3), (3, 4),
-    (0, 5), (5, 6), (6, 7), (7, 8),
-    (5, 9), (9, 10), (10, 11), (11, 12),
-    (9, 13), (13, 14), (14, 15), (15, 16),
-    (13, 17), (17, 18), (18, 19), (19, 20),
+    (0, 1),
+    (1, 2),
+    (2, 3),
+    (3, 4),
+    (0, 5),
+    (5, 6),
+    (6, 7),
+    (7, 8),
+    (5, 9),
+    (9, 10),
+    (10, 11),
+    (11, 12),
+    (9, 13),
+    (13, 14),
+    (14, 15),
+    (15, 16),
+    (13, 17),
+    (17, 18),
+    (18, 19),
+    (19, 20),
     (0, 17),
 ]
 
@@ -129,20 +152,35 @@ class GestureControl:
         self._last_click_time = 0
         self._last_right_click_time = 0
         self._scroll_anchor = None
+        self._hscroll_anchor = None
+        self._zoom_anchor = None
+        self._dragging = False
+        self._pinch_start = None
+        self._swipe_start = None
+        self._swipe_time = 0
 
-        self._model = GestureModel(
-            num_hands=config.MAX_NUM_HANDS,
-            detection_conf=config.HAND_DETECTION_CONFIDENCE,
-            tracking_conf=config.HAND_TRACKING_CONFIDENCE,
+        self._model = create_gesture_model(
+            config.MAX_NUM_HANDS,
+            config.HAND_DETECTION_CONFIDENCE,
+            config.HAND_TRACKING_CONFIDENCE,
         )
+        self._perf = {"frames": 0, "infer": 0.0, "since": time.time(), "start_id": 0}
 
         # name -> (label, action, hold seconds). Longer holds for actions
         # that are disruptive if triggered by accident.
         self._builtin_actions = {
             "Closed_Fist": ("Fist -> switch mode", self._toggle_callback, 0.8),
-            "Open_Palm": ("Open palm -> play/pause", lambda: sc.media_control("play_pause"), 1.0),
+            "Open_Palm": (
+                "Open palm -> play/pause",
+                lambda: sc.media_control("play_pause"),
+                1.0,
+            ),
             "Thumb_Up": ("Thumbs up -> volume up", lambda: sc.set_volume("up"), 0.5),
-            "Thumb_Down": ("Thumbs down -> volume down", lambda: sc.set_volume("down"), 0.5),
+            "Thumb_Down": (
+                "Thumbs down -> volume down",
+                lambda: sc.set_volume("down"),
+                0.5,
+            ),
             "Victory": ("Victory -> screenshot", sc.take_screenshot, 0.8),
             "ILoveYou": ("I love you -> lock PC", sc.lock_pc, 1.5),
         }
@@ -197,18 +235,28 @@ class GestureControl:
             h, w, _ = frame.shape
             now = time.time()
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            landmarks, gesture_name, score = self._model.process(rgb, now * 1000)
+            started = time.perf_counter()
+            hands = self._model.process(rgb, now * 1000)
+            self._log_perf(time.perf_counter() - started, frame_id)
 
-            if landmarks:
-                draw_landmarks(frame, landmarks)
-                self._handle_frame(landmarks, gesture_name, score, w, h, now)
+            if hands:
+                for landmarks, _, _ in hands:
+                    draw_landmarks(frame, landmarks)
+                if len(hands) >= 2 and self._handle_two_hands(hands, now):
+                    pass  # zoom takes over while both hands are pinched
+                else:
+                    self._zoom_anchor = None
+                    landmarks, gesture_name, score = hands[0]
+                    self._handle_frame(landmarks, gesture_name, score, w, h, now)
             else:
                 self._on_hand_lost()
 
             if self._show_preview:
-                self._draw_overlay(frame, h, landmarks is not None)
+                self._draw_overlay(frame, h, bool(hands))
                 cv2.imshow(config.APP_NAME, frame)
-                if cv2.waitKey(1) & 0xFF == 27:  # Esc hides the preview, tracking keeps running
+                if (
+                    cv2.waitKey(1) & 0xFF == 27
+                ):  # Esc hides the preview, tracking keeps running
                     self._show_preview = False
                     cv2.destroyWindow(config.APP_NAME)
 
@@ -216,14 +264,54 @@ class GestureControl:
         cap.release()
         cv2.destroyAllWindows()
 
+    def _log_perf(self, infer_seconds, frame_id):
+        # Prints speed every 5 seconds: frames the camera delivered, frames
+        # processed, and time spent in the model. If camera fps is low, the
+        # stream is the bottleneck; if model ms is high, the model is.
+        if not getattr(config, "SHOW_PERF", True):
+            return
+        perf = self._perf
+        perf["frames"] += 1
+        perf["infer"] += infer_seconds
+        elapsed = time.time() - perf["since"]
+        if elapsed < 5:
+            return
+        camera_fps = (frame_id - perf["start_id"]) / elapsed
+        print(
+            f"[Perf] camera {camera_fps:.1f} fps | processed {perf['frames'] / elapsed:.1f} fps | "
+            f"model {perf['infer'] / perf['frames'] * 1000:.1f} ms/frame"
+        )
+        perf.update(frames=0, infer=0.0, since=time.time(), start_id=frame_id)
+
     def _draw_overlay(self, frame, h, hand_found):
-        cv2.putText(frame, f"Mode: {mode_manager.get_mode()}", (10, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+        cv2.putText(
+            frame,
+            f"Mode: {mode_manager.get_mode()}",
+            (10, 30),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.8,
+            (0, 255, 0),
+            2,
+        )
         if not hand_found:
-            cv2.putText(frame, "No hand detected", (10, 60),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-        cv2.putText(frame, f"Gesture: {self._current_gesture}", (10, h - 15),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 200, 0), 2)
+            cv2.putText(
+                frame,
+                "No hand detected",
+                (10, 60),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (0, 0, 255),
+                2,
+            )
+        cv2.putText(
+            frame,
+            f"Gesture: {self._current_gesture}",
+            (10, h - 15),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (255, 200, 0),
+            2,
+        )
 
     def _on_hand_lost(self):
         # Resets state so the cursor doesn't jump when the hand comes back
@@ -233,6 +321,14 @@ class GestureControl:
         self._clicking = False
         self._right_clicking = False
         self._scroll_anchor = None
+        self._hscroll_anchor = None
+        self._zoom_anchor = None
+        self._swipe_start = None
+        self._pinch_start = None
+        if self._dragging:
+            pyautogui.mouseUp()
+            self._dragging = False
+            self._log("Drag end")
         self._reset_hold()
 
     def _reset_hold(self):
@@ -241,7 +337,9 @@ class GestureControl:
 
     def _handle_frame(self, landmarks, gesture_name, score, w, h, now):
         mode = mode_manager.get_mode()
-        recognized = gesture_name in self._builtin_actions and score >= config.GESTURE_MIN_SCORE
+        recognized = (
+            gesture_name in self._builtin_actions and score >= config.GESTURE_MIN_SCORE
+        )
 
         # In voice mode only the fist (mode switch) works
         if recognized and (mode == "GESTURE" or gesture_name == "Closed_Fist"):
@@ -257,16 +355,84 @@ class GestureControl:
             return
         self._handle_pointer(landmarks, w, h, now)
 
+    def _handle_two_hands(self, hands, now):
+        # Both hands pinched: distance between them controls zoom, like a
+        # trackpad pinch
+        pinched = []
+        for landmarks, _, _ in hands[:2]:
+            hand_size = distance(landmarks[0], landmarks[9]) or 1
+            if (
+                distance(landmarks[4], landmarks[8]) / hand_size
+                < config.CLICK_CLOSE_RATIO
+            ):
+                pinched.append((landmarks, hand_size))
+        if len(pinched) < 2:
+            return False
+
+        gap = distance(pinched[0][0][8], pinched[1][0][8])
+        scale = (pinched[0][1] + pinched[1][1]) / 2
+        if self._zoom_anchor is None:
+            self._zoom_anchor = gap
+            self._current_gesture = "Zoom ready"
+            return True
+
+        change = (gap - self._zoom_anchor) / scale
+        if abs(change) >= config.ZOOM_STEP_RATIO:
+            direction = "in" if change > 0 else "out"
+            pyautogui.hotkey("ctrl", "+" if change > 0 else "-")
+            self._zoom_anchor = gap
+            self._current_gesture = f"Zoom {direction}"
+            self._log(f"Zoom {direction}")
+        return True
+
+    def _detect_swipe(self, landmarks, hand_size, now):
+        # A fast horizontal or vertical move of an open palm
+        wrist = landmarks[0]
+        if self._swipe_start is None or now - self._swipe_time > config.SWIPE_MAX_TIME:
+            self._swipe_start = wrist
+            self._swipe_time = now
+            return None
+
+        dx = wrist[0] - self._swipe_start[0]
+        dy = wrist[1] - self._swipe_start[1]
+        threshold = config.SWIPE_MIN_RATIO * hand_size
+        swipe = None
+        if abs(dx) > threshold and abs(dx) > abs(dy):
+            swipe = "right" if dx > 0 else "left"
+        elif abs(dy) > threshold and abs(dy) > abs(dx):
+            swipe = "down" if dy > 0 else "up"
+        if swipe:
+            self._swipe_start = None
+            self._swipe_time = now
+        return swipe
+
     def _handle_builtin(self, name, landmarks, now):
         label, action, hold_time = self._builtin_actions[name]
         self._current_gesture = label
         hand_size = distance(landmarks[0], landmarks[9]) or 1
         wrist = landmarks[0]
 
+        if name == "Open_Palm":
+            swipe = self._detect_swipe(landmarks, hand_size, now)
+            if swipe:
+                swipe_label, swipe_action = SWIPE_ACTIONS[swipe]
+                self._current_gesture = swipe_label
+                self._log(swipe_label)
+                try:
+                    swipe_action()
+                except Exception as e:
+                    print(f"[Gesture] Swipe action failed: {e}")
+                self._reset_hold()
+                return
+        else:
+            self._swipe_start = None
+
         # The hold restarts if the gesture changes or the hand moves, so
         # gestures made while moving the cursor don't fire by accident
-        moved = (self._hold_anchor is not None and
-                 distance(wrist, self._hold_anchor) > STILL_RATIO * hand_size)
+        moved = (
+            self._hold_anchor is not None
+            and distance(wrist, self._hold_anchor) > STILL_RATIO * hand_size
+        )
         if name != self._hold_name or moved:
             self._hold_name = name
             self._hold_start = now
@@ -290,25 +456,33 @@ class GestureControl:
         ratios = {
             "click": distance(thumb, lm[8]) / hand_size,
             "scroll": distance(thumb, lm[12]) / hand_size,
+            "hscroll": distance(thumb, lm[16]) / hand_size,
             "right": distance(thumb, lm[20]) / hand_size,
         }
         closest = min(ratios, key=ratios.get)
 
-        # Scroll: thumb + middle pinch, vertical hand movement scrolls
+        # Scroll: thumb + middle pinch (vertical), thumb + ring pinch (horizontal)
         if closest == "scroll" and ratios["scroll"] < config.CLICK_CLOSE_RATIO:
             self._handle_scroll(lm, hand_size)
             return
         self._scroll_anchor = None
 
-        # Cursor freezes while fingers are closing, so a pinch doesn't drag it off target
-        if ratios[closest] > config.CLICK_RELEASE_RATIO:
+        if closest == "hscroll" and ratios["hscroll"] < config.CLICK_CLOSE_RATIO:
+            self._handle_hscroll(lm, hand_size)
+            return
+        self._hscroll_anchor = None
+
+        # The cursor keeps following the hand while dragging; otherwise it
+        # freezes as fingers close so a pinch doesn't pull it off target
+        if self._dragging or ratios[closest] > config.CLICK_RELEASE_RATIO:
             self._move_cursor(lm[8], w, h, now)
-            self._current_gesture = "Cursor move"
+            if not self._dragging:
+                self._current_gesture = "Cursor move"
 
         if closest == "click" and ratios["click"] < config.CLICK_CLOSE_RATIO:
-            self._left_click(now)
+            self._handle_click_pinch(now)
         elif ratios["click"] > config.CLICK_RELEASE_RATIO:
-            self._clicking = False
+            self._release_click_pinch()
 
         if closest == "right" and ratios["right"] < config.CLICK_CLOSE_RATIO:
             self._right_click(now)
@@ -320,6 +494,27 @@ class GestureControl:
         x = map_range(point[0], m, w - m, 0, screen_w - 1)
         y = map_range(point[1], m, h - m, 0, screen_h - 1)
         pyautogui.moveTo(self._filter_x(x, now), self._filter_y(y, now))
+
+    def _handle_click_pinch(self, now):
+        # A short pinch clicks; holding the pinch starts a drag
+        if self._pinch_start is None:
+            self._pinch_start = now
+        if not self._dragging and now - self._pinch_start >= config.DRAG_HOLD_TIME:
+            pyautogui.mouseDown()
+            self._dragging = True
+            self._current_gesture = "Dragging"
+            self._log("Drag start")
+            return
+        if not self._dragging:
+            self._left_click(now)
+
+    def _release_click_pinch(self):
+        self._pinch_start = None
+        self._clicking = False
+        if self._dragging:
+            pyautogui.mouseUp()
+            self._dragging = False
+            self._log("Drag end")
 
     def _left_click(self, now):
         if self._clicking or now - self._last_click_time < config.CLICK_COOLDOWN:
@@ -334,7 +529,10 @@ class GestureControl:
         self._clicking = True
 
     def _right_click(self, now):
-        if self._right_clicking or now - self._last_right_click_time < config.RIGHT_CLICK_COOLDOWN:
+        if (
+            self._right_clicking
+            or now - self._last_right_click_time < config.RIGHT_CLICK_COOLDOWN
+        ):
             return
         pyautogui.click(button="right")
         self._current_gesture = "Right-click"
@@ -355,6 +553,22 @@ class GestureControl:
             pyautogui.scroll(steps * config.SCROLL_STEP)
             self._scroll_anchor = y
             direction = "up" if steps > 0 else "down"
+            self._current_gesture = f"Scroll {direction}"
+            self._log(f"Scroll {direction}")
+
+    def _handle_hscroll(self, lm, hand_size):
+        x = lm[9][0]
+        if self._hscroll_anchor is None:
+            self._hscroll_anchor = x
+            self._current_gesture = "H-scroll ready"
+            return
+        step_px = hand_size * 0.15
+        dx = x - self._hscroll_anchor
+        steps = int(dx / step_px)
+        if steps:
+            pyautogui.hscroll(steps * config.SCROLL_STEP)
+            self._hscroll_anchor = x
+            direction = "right" if steps > 0 else "left"
             self._current_gesture = f"Scroll {direction}"
             self._log(f"Scroll {direction}")
 
