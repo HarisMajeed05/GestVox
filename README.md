@@ -1,100 +1,86 @@
 # GestVox
 
-Hands-free control for Windows. Move your mouse, click, and scroll with hand gestures, or talk to a full voice assistant, complete with memory, system control, and per-user voice login.
+Hands-free control for Windows. Control the mouse with hand gestures, or talk to a voice assistant that can run commands on your PC.
 
-## Features
+## Gesture control
 
-**Gesture control** (MediaPipe hand tracking + pretrained gesture recognizer)
+Uses MediaPipe hand tracking and a pretrained gesture recognizer.
 
 | Gesture | Action |
-| --- | --- |
-| Move index finger | Move cursor |
-| Pinch thumb + index (quick) | Click (pinch twice = double-click) |
-| Pinch thumb + index (hold) | Drag and drop |
-| Pinch thumb + pinky | Right-click |
-| Pinch thumb + middle, move up/down | Scroll vertically |
-| Pinch thumb + ring, move left/right | Scroll horizontally |
-| Pinch both hands, move apart/together | Zoom in / out |
-| Swipe open palm left / right | Browser back / forward |
-| Swipe open palm up / down | Switch window / show desktop |
-| Closed fist (hold ~1s) | Switch between gesture and voice mode (works in both modes) |
-| Open palm (hold still ~1s) | Play/pause media |
-| Thumbs up | Volume up |
-| Thumbs down | Volume down |
-| Victory | Screenshot |
-| I love you (hold ~1.5s) | Lock PC |
+|---|---|
+| Move index finger | Move the cursor |
+| Quick pinch, thumb and index | Click (pinch twice for double click) |
+| Hold pinch, thumb and index | Drag and drop |
+| Pinch thumb and pinky | Right click |
+| Pinch thumb and middle, move up or down | Scroll vertically |
+| Pinch thumb and ring, move left or right | Scroll horizontally |
+| Pinch with both hands, move apart or together | Zoom in or out |
+| Swipe open palm left or right | Browser back or forward |
+| Swipe open palm up or down | Switch window or show desktop |
+| Hold a closed fist for about 1 second | Switch between gesture and voice mode |
+| Hold an open palm still for about 1 second | Play or pause media |
+| Thumbs up or down | Volume up or down |
+| Victory sign | Screenshot |
+| "I love you" sign, held for about 1.5 seconds | Lock the PC |
 
-**Languages**
+## Voice assistant
 
-- Understands English, Urdu, Punjabi, and Urdu mixed with English, detected automatically per sentence
-- Wake words and commands work in any of them ("hey vox", "سنو ووکس", "chrome kholo", "آواز بڑھاؤ")
-- Replies are spoken back in the same language, using neural voices
-- Punjabi has no neural voice available, so Punjabi replies use the Urdu voice
-
-**Voice assistant**
-
-- Wake word starts a session ("hey vox"), it keeps listening until you say "bye"
-- Speech to text through Groq Whisper (best for Urdu and Punjabi), or locally with faster-whisper for no network delay and offline use
-- Replies stream sentence by sentence, so it starts speaking before the full answer is ready, and you can interrupt it mid-sentence
-- Full conversational AI (Groq) for questions and chat
-- Persistent memory: remembers facts about you across restarts, and keeps learning from every conversation (corrections included)
-- Full PC control by voice, either through built-in commands or PowerShell for anything else:
-  - Apps and windows: open/close apps, minimize, maximize, snap, switch window, show desktop, tabs
-  - Media and audio: volume, mute, play/pause, next/previous track
-  - System: lock, sleep, sign out, shutdown, restart, brightness, dark/light mode, Wi-Fi, Bluetooth
-  - Info: battery, time, weather (live), CPU/memory, disk space, IP address
+- Understands English, Urdu, Punjabi and Urdu mixed with English, detected per sentence
+- Wake word ("hey vox") starts a session, and it keeps listening until you say "bye"
+- Speech to text with Groq Whisper, or locally with faster-whisper for offline use
+- Replies are spoken in the same language. Punjabi replies use the Urdu voice because no Punjabi neural voice is available.
+- Replies stream sentence by sentence, and you can interrupt while it is speaking
+- Remembers facts about you between runs
+- PC control by voice:
+  - Apps and windows: open, close, minimize, maximize, snap, switch, show desktop, tabs
+  - Media and audio: volume, mute, play, pause, next, previous
+  - System: lock, sleep, sign out, shutdown, restart, brightness, dark or light mode, Wi-Fi, Bluetooth
+  - Info: battery, time, weather, CPU, memory, disk space, IP address
   - Editing shortcuts: copy, paste, cut, undo, redo, select all, save, find, print, zoom
-  - Browsing: open known sites, web search, YouTube search, back/forward, refresh
-  - Productivity: timers, notes, clipboard read/write, dictation, file search, screenshots
+  - Browsing: open sites, web search, YouTube search, back, forward, refresh
+  - Productivity: timers, notes, clipboard, dictation, file search, screenshots
   - Anything else: the assistant writes and runs a PowerShell command
-- Destructive actions (deleting files, shutdown, Wi-Fi off) ask for spoken confirmation first
+- Destructive actions such as deleting files, shutdown or turning Wi-Fi off ask for spoken confirmation first
 
-**Multi-user**
+## Multi-user
 
-- Voice biometric login: each person gets their own recognized voice profile
-- Separate memory/data per user, nobody sees anyone else's facts or history
-
-**Other**
-
-- Remote camera support: run the camera on a different device (e.g. a laptop) over local network or Tailscale, useful if the PC has no webcam
-- Small always-on-top overlay to see/switch mode manually
-- Live gesture detection log (console + on-screen label)
+- Voice login: each person has their own voice profile
+- Memory and data are kept separately for each user
 
 ## Setup
 
-1. `conda env create -f environment.yml` then `conda activate gestvox`
-   (or `pip install -r requirements.txt`)
-2. Copy `.env.example` to `.env` and add your Groq API key
-3. Run `python main.py`
+1. Create the environment: `conda env create -f environment.yml`, then `conda activate gestvox`. You can also use `pip install -r requirements.txt`.
+2. Copy `.env.example` to `.env` and add your Groq API key.
+3. Run `python main.py`.
 
-First run downloads the gesture recognition model (~8MB) automatically.
+The gesture model (about 8 MB) is downloaded on the first run. The Groq chat model is set by `GROQ_MODEL` in `config.py`.
 
 ## Voice login
 
-On startup, say a short phrase. Recognized voice → logs you in. Unknown voice → say "my name is <name>" to create a profile. You can also say "create a profile for <name>" any time during a conversation.
+On startup, say a short phrase. A known voice logs in. For a new voice, say "my name is <name>" to create a profile. You can also say "create a profile for <name>" during a conversation.
 
 ## Remote camera
 
-If the PC has no webcam, run `camera_server.py` on another device with a camera, then set `CAMERA_SOURCE = "remote"` and `REMOTE_CAMERA_URL` in `config.py`. See below for same-network and cross-network (Tailscale) setup.
+If the PC has no webcam, run `camera_server.py` on another device that has one, then set `CAMERA_SOURCE = "remote"` and `REMOTE_CAMERA_URL` in `config.py`.
 
-### Same local network
+Same network:
 
-1. On the camera device: `python camera_server.py`
-2. Find its local IP (`ipconfig`)
-3. Set `REMOTE_CAMERA_URL = "http://<ip>:8080/video"`
+1. On the camera device, run `python camera_server.py`.
+2. Find its local IP address with `ipconfig`.
+3. Set `REMOTE_CAMERA_URL = "http://<ip>:8080/video"`.
 
-### Different networks (Tailscale)
+Different networks (Tailscale):
 
-1. Install Tailscale on both devices, log into the same account
-2. Get the camera device's Tailscale IP (`tailscale ip -4`)
-3. Set `REMOTE_CAMERA_URL = "http://<tailscale-ip>:8080/video"`
+1. Install Tailscale on both devices and sign in to the same account.
+2. Get the camera device's Tailscale IP with `tailscale ip -4`.
+3. Set `REMOTE_CAMERA_URL = "http://<tailscale-ip>:8080/video"`.
 
-## Mic issues
+## Microphone problems
 
-If you get a mic error on startup, run `python list_mics.py`, note the correct device number, and set `MIC_DEVICE_INDEX` in `config.py`.
+If you get a mic error on startup, run `python list_mics.py`, find the right device number and set `MIC_DEVICE_INDEX` in `config.py`.
 
 ## Notes
 
-- Press `Esc` in the camera preview window to close it (app keeps running)
-- Close the overlay window to fully exit
-- PyAudio may need `pip install pipwin` then `pipwin install pyaudio` on some Windows setups
+- Press Esc in the camera preview window to close it. The app keeps running.
+- Close the overlay window to exit the app.
+- On some Windows setups PyAudio needs `pip install pipwin` followed by `pipwin install pyaudio`.
